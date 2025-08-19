@@ -1,0 +1,19 @@
+project_id = "fsrabyevssdxaglriclw"
+
+[functions.generate-video]
+verify_jwt = true
+
+[functions.init-leonardo-upload]
+verify_jwt = true
+
+[functions.upload-leonardo-file]
+verify_jwt = true
+
+[functions.add-existing-videos]
+verify_jwt = true
+
+[functions.create-payment]
+verify_jwt = true
+
+[functions.verify-payment]
+verify_jwt = false

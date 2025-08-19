@@ -1,0 +1,221 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Vloggo AI Platform Design System - Glass Morphism Theme */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    /* Core Brand Colors */
+    --background: 240 15% 6%;
+    --foreground: 240 5% 95%;
+    
+    /* Glass Morphism Base */
+    --glass-background: 240 15% 10%;
+    --glass-border: 240 20% 20%;
+    
+    /* AI Brand Palette */
+    --primary: 259 100% 65%;
+    --primary-glow: 259 100% 75%;
+    --primary-dark: 259 100% 45%;
+    --primary-foreground: 240 5% 95%;
+    
+    --secondary: 200 100% 60%;
+    --secondary-glow: 200 100% 70%;
+    --secondary-foreground: 240 5% 95%;
+    
+    --accent: 280 100% 70%;
+    --accent-glow: 280 100% 80%;
+    --accent-foreground: 240 5% 95%;
+    
+    /* Neutral Palette */
+    --muted: 240 15% 15%;
+    --muted-foreground: 240 5% 65%;
+    
+    --card: 240 15% 10%;
+    --card-foreground: 240 5% 95%;
+    
+    --popover: 240 15% 8%;
+    --popover-foreground: 240 5% 95%;
+    
+    --border: 240 20% 20%;
+    --input: 240 20% 15%;
+    --ring: 259 100% 65%;
+    
+    --destructive: 0 85% 60%;
+    --destructive-foreground: 240 5% 95%;
+    
+    /* Advanced Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
+    --gradient-hero: linear-gradient(135deg, hsl(var(--primary) / 0.9), hsl(var(--secondary) / 0.8), hsl(var(--accent) / 0.7));
+    --gradient-glass: linear-gradient(135deg, hsl(var(--glass-background) / 0.8), hsl(var(--glass-background) / 0.4));
+    --gradient-border: linear-gradient(135deg, hsl(var(--primary) / 0.5), hsl(var(--secondary) / 0.3));
+    
+    /* Glow Effects */
+    --glow-primary: 0 0 40px hsl(var(--primary) / 0.3);
+    --glow-secondary: 0 0 40px hsl(var(--secondary) / 0.3);
+    --glow-accent: 0 0 40px hsl(var(--accent) / 0.3);
+    --glow-soft: 0 10px 30px hsl(var(--primary) / 0.1);
+    
+    /* Glass Shadows */
+    --shadow-glass: 0 8px 32px hsl(var(--background) / 0.3);
+    --shadow-glow: 0 0 60px hsl(var(--primary) / 0.2);
+    --shadow-elevated: 0 20px 60px hsl(var(--background) / 0.4);
+    
+    /* Animation Variables */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-spring: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    --transition-glass: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    --radius: 1rem;
+    
+    /* Sidebar Variables */
+    --sidebar-background: 240 15% 8%;
+    --sidebar-foreground: 240 5% 85%;
+    --sidebar-primary: 259 100% 65%;
+    --sidebar-primary-foreground: 240 5% 95%;
+    --sidebar-accent: 240 15% 12%;
+    --sidebar-accent-foreground: 240 5% 90%;
+    --sidebar-border: 240 20% 18%;
+    --sidebar-ring: 259 100% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  /* Glass Morphism Utilities */
+  .glass {
+    @apply backdrop-blur-xl bg-gradient-to-br from-white/10 to-white/5 border border-white/20;
+  }
+
+  .glass-card {
+    @apply backdrop-blur-xl bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/[0.15] shadow-2xl;
+  }
+
+  .glass-button {
+    @apply backdrop-blur-md bg-gradient-to-r from-white/20 to-white/10 border border-white/30 hover:from-white/30 hover:to-white/20 transition-all duration-300;
+  }
+
+  /* Gradient Text */
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent;
+  }
+
+  .gradient-text-accent {
+    @apply bg-gradient-to-r from-accent to-primary bg-clip-text text-transparent;
+  }
+
+  /* Glow Effects */
+  .glow-primary {
+    box-shadow: var(--glow-primary);
+  }
+
+  .glow-secondary {
+    box-shadow: var(--glow-secondary);
+  }
+
+  .glow-soft {
+    box-shadow: var(--glow-soft);
+  }
+
+  /* Animated Background */
+  .animated-bg {
+    background: linear-gradient(-45deg, 
+      hsl(var(--primary) / 0.1), 
+      hsl(var(--secondary) / 0.1), 
+      hsl(var(--accent) / 0.1), 
+      hsl(var(--primary) / 0.1)
+    );
+    background-size: 400% 400%;
+    animation: gradientShift 15s ease infinite;
+  }
+
+  @keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  /* Floating Animation */
+  .float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-20px); }
+  }
+
+  /* Pulse Glow */
+  .pulse-glow {
+    animation: pulseGlow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes pulseGlow {
+    from { box-shadow: var(--glow-soft); }
+    to { box-shadow: var(--glow-primary); }
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-background;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gradient-to-b from-primary to-secondary rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply from-primary-glow to-secondary-glow;
+  }
+}
+
+@layer components {
+  /* Hero Gradient Background */
+  .hero-bg {
+    background: radial-gradient(ellipse at top, hsl(var(--primary) / 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at bottom right, hsl(var(--secondary) / 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at bottom left, hsl(var(--accent) / 0.1) 0%, transparent 50%);
+  }
+
+  /* Grid Pattern */
+  .grid-pattern {
+    background-image: 
+      linear-gradient(to right, hsl(var(--border) / 0.3) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.3) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Video Slider Animations */
+  .animate-slide-right {
+    animation: slideRight 40s linear infinite;
+  }
+
+  .animate-slide-left {
+    animation: slideLeft 40s linear infinite;
+  }
+
+  @keyframes slideRight {
+    from { transform: translateX(-50%); }
+    to { transform: translateX(0%); }
+  }
+
+  @keyframes slideLeft {
+    from { transform: translateX(0%); }
+    to { transform: translateX(-50%); }
+  }
+}
