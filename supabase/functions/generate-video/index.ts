@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1'
+import Replicate from "https://esm.sh/replicate@0.29.4"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,14 +21,21 @@ serve(async (req) => {
 
   try {
     console.log('Generate video function called');
-    
-    const leonardoApiKey = Deno.env.get('LEONARDO_API_KEY');
-    if (!leonardoApiKey) {
-      console.error('LEONARDO_API_KEY not found in environment variables');
-      throw new Error('LEONARDO_API_KEY not found in environment variables');
+
+    const replicateApiKey = Deno.env.get('REPLICATE_API_TOKEN');
+    if (!replicateApiKey) {
+      console.error('REPLICATE_API_TOKEN not found in environment variables');
+      throw new Error('REPLICATE_API_TOKEN not found in environment variables');
     }
 
-    console.log('Leonardo AI API key found');
+    console.log('Replicate API key found (length:', replicateApiKey.length + ')');
+
+    // Initialize Replicate client
+    const replicate = new Replicate({
+      auth: replicateApiKey,
+    });
+
+    console.log('Replicate client initialized successfully');
 
     // Initialize Supabase client
     const supabaseUrl = 'https://fsrabyevssdxaglriclw.supabase.co';
@@ -61,18 +69,29 @@ serve(async (req) => {
     console.log('User authenticated:', user.id);
 
     const body = await req.json();
-    const { imageUrl, leonardoImageId, prompt = "Transform this image into a cinematic video", duration = 5 } = body;
-    console.log('Request payload:', { hasImageUrl: !!imageUrl, hasLeonardoId: !!leonardoImageId, prompt, duration });
+    const { imageUrl, prompt = "Transform this image into a cinematic video", duration = 5 } = body;
+    console.log('Request payload:', { imageUrl: imageUrl ? imageUrl.substring(0, 50) + '...' : null, prompt, duration });
 
-    if (!leonardoImageId && !imageUrl) {
-      console.error('No Leonardo image ID or image URL provided');
+    if (!imageUrl) {
+      console.error('No image URL provided');
       return new Response(
-        JSON.stringify({ error: 'Leonardo image ID or image URL is required' }),
+        JSON.stringify({ error: 'Image URL is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log(`Generating video for user ${user.id} with Leonardo image ID: ${leonardoImageId || 'from URL'}`);
+    // Validate image URL format
+    try {
+      new URL(imageUrl);
+    } catch {
+      console.error('Invalid image URL format:', imageUrl);
+      return new Response(
+        JSON.stringify({ error: 'Invalid image URL format' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`Generating video for user ${user.id} with image URL: ${imageUrl}`);
 
     // Check user credits
     const { data: profile, error: profileError } = await supabase
@@ -89,181 +108,69 @@ serve(async (req) => {
       );
     }
 
-    let finalLeonardoImageId = leonardoImageId;
+    // Generate video with Replicate using wan-video/wan-2.2-i2v-fast model
+    console.log('Sending video generation request to Replicate...');
 
-    // If no Leonardo image ID provided, upload from URL using VEO3 workflow
-    if (!finalLeonardoImageId && imageUrl) {
-      console.log('Uploading image to Leonardo AI using VEO3 workflow...');
-      
-      // Fetch the image from Supabase storage
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) {
-        throw new Error('Failed to fetch image from storage');
-      }
-      
-      const imageBuffer = await imageResponse.arrayBuffer();
-      const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-      
-      // Detect file extension from URL or Content-Type
-      const cleanUrl = imageUrl.split('?')[0];
-      let fileExtension = cleanUrl.includes('.') ? cleanUrl.split('.').pop()!.toLowerCase() : '';
-      if (!fileExtension) {
-        if (contentType.includes('jpeg')) fileExtension = 'jpg';
-        else if (contentType.includes('png')) fileExtension = 'png';
-        else if (contentType.includes('webp')) fileExtension = 'webp';
-        else fileExtension = 'jpg';
-      }
-      
-      // Step 1: Get presigned URL for uploading an image
-      console.log('Step 1: Getting presigned URL...');
-      const initResponse = await fetch('https://cloud.leonardo.ai/api/rest/v1/init-image', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${leonardoApiKey}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({ extension: fileExtension })
-      });
-      
-      if (!initResponse.ok) {
-        const errorText = await initResponse.text();
-        console.error('Leonardo AI init-image error:', errorText);
-        throw new Error(`Failed to get presigned URL: ${initResponse.status} - ${errorText}`);
-      }
-      
-      const initResult = await initResponse.json();
-      console.log('Init response:', JSON.stringify(initResult, null, 2));
-      
-      if (!initResult.uploadInitImage?.fields || !initResult.uploadInitImage?.url || !initResult.uploadInitImage?.id) {
-        throw new Error('Failed to get upload details from Leonardo AI');
-      }
-      
-      // Step 2: Extract fields, URL, and image ID
-      const fields = JSON.parse(initResult.uploadInitImage.fields);
-      const uploadUrl = initResult.uploadInitImage.url;
-      const imageId = initResult.uploadInitImage.id;
-      
-      console.log('Step 2: Extracted upload details, image ID:', imageId);
-      
-      // Step 3: Upload image via presigned URL (no auth headers)
-      console.log('Step 3: Uploading image via presigned URL...');
-      const uploadFormData = new FormData();
-      
-      // Add all fields from the presigned URL
-      Object.entries(fields).forEach(([key, value]) => {
-        uploadFormData.append(key, value as string);
-      });
-      
-      // Add the file last
-      uploadFormData.append('file', new Blob([imageBuffer], { type: contentType }), `image.${fileExtension}`);
-      
-      // Upload without authorization headers as per documentation
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'POST',
-        body: uploadFormData
-      });
-      
-      console.log('Upload response status:', uploadResponse.status);
-      
-      // VEO3 upload should return 204 success with no content
-      if (uploadResponse.status !== 204) {
-        const errorText = await uploadResponse.text();
-        console.error('Leonardo AI upload error:', uploadResponse.status, errorText);
-        throw new Error(`Failed to upload image: ${uploadResponse.status} - ${errorText}`);
-      }
-      
-      finalLeonardoImageId = imageId;
-      console.log('VEO3 upload successful, image ID:', finalLeonardoImageId);
-    }
-
-    // Now generate video with Motion 2.0 (image-to-video) using the uploaded image
-    const leonardoRequest = {
-      prompt,
-      imageId: finalLeonardoImageId,
-      imageType: "UPLOADED",
-      resolution: "RESOLUTION_720",
-      isPublic: false
+    const input = {
+      image: imageUrl,
+      prompt: prompt,
+      go_fast: true, // Use fast mode for better performance
+      num_frames: 81, // Recommended for best results
+      resolution: "720p", // Higher resolution
+      frames_per_second: 16, // Standard frame rate
     };
 
-    console.log('Sending video generation request to Leonardo AI:', JSON.stringify(leonardoRequest, null, 2));
+    console.log('Replicate input:', JSON.stringify(input, null, 2));
 
-    // Call Leonardo AI video generation API
-    const leonardoResponse = await fetch('https://cloud.leonardo.ai/api/rest/v1/generations-image-to-video', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${leonardoApiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify(leonardoRequest)
-    });
+    // Call Replicate API with error handling
+    let output;
+    try {
+      console.log('Making Replicate API call to wan-video/wan-2.2-i2v-fast...');
+      output = await replicate.run("wan-video/wan-2.2-i2v-fast", { input });
+      console.log('Replicate API call completed');
+      console.log('Replicate raw output type:', typeof output);
+      console.log('Replicate raw output:', JSON.stringify(output, null, 2));
+    } catch (apiError: any) {
+      console.error('Replicate API call failed:', apiError);
+      console.error('API Error details:', JSON.stringify(apiError, null, 2));
 
-    if (!leonardoResponse.ok) {
-      const errorText = await leonardoResponse.text();
-      console.error('Leonardo AI API error:', errorText);
-      throw new Error(`Leonardo AI API error: ${leonardoResponse.status} - ${errorText}`);
-    }
-
-    const leonardoResult = await leonardoResponse.json();
-    console.log('Leonardo AI API response:', JSON.stringify(leonardoResult, null, 2));
-
-    // Check if generation was created successfully - Leonardo AI returns motionVideoGenerationJob
-    const generationJob = leonardoResult.motionVideoGenerationJob || leonardoResult.sdGenerationJob;
-    if (!generationJob?.generationId) {
-      console.error('No generation job found in response:', leonardoResult);
-      throw new Error('Video generation failed - no generation job returned');
-    }
-
-    const generationJobId = generationJob.generationId;
-    const apiCreditCost = generationJob.apiCreditCost || 0;
-    console.log(`Generation job ID: ${generationJobId}, API cost: ${apiCreditCost} credits`);
-
-    // Poll for completion (Leonardo AI is async)
-    let videoUrl = null;
-    let thumbnailUrl = null;
-    let attempts = 0;
-    const maxAttempts = 30; // 5 minutes max wait
-    
-    while (!videoUrl && attempts < maxAttempts) {
-      attempts++;
-      console.log(`Polling attempt ${attempts}/${maxAttempts}`);
-      
-      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
-      
-      // Check generation status
-      const statusResponse = await fetch(`https://cloud.leonardo.ai/api/rest/v1/generations/${generationJobId}`, {
-        headers: {
-          'Authorization': `Bearer ${leonardoApiKey}`,
-          'Accept': 'application/json'
-        }
-      });
-      
-      if (statusResponse.ok) {
-        const statusResult = await statusResponse.json();
-        console.log('Status check result:', JSON.stringify(statusResult, null, 2));
-        
-        const gen = statusResult.generations_by_pk;
-        if (gen?.status === 'COMPLETE') {
-          const fromVideos = gen?.generated_videos?.[0]?.url || null;
-          const fromImages = gen?.generated_images?.[0]?.motionMP4URL || null;
-          videoUrl = fromVideos || fromImages;
-          thumbnailUrl = gen?.generated_images?.[0]?.url || null;
-          if (videoUrl) {
-            console.log('Video generation completed:', videoUrl);
-            break;
-          }
-        } else if (gen?.status === 'FAILED') {
-          throw new Error('Video generation failed on Leonardo AI');
-        }
-
-        console.log('Generation status:', statusResult.generations_by_pk?.status);
+      // Provide more specific error messages
+      if (apiError.message?.includes('authentication')) {
+        throw new Error('Replicate API authentication failed. Please check your API token.');
+      } else if (apiError.message?.includes('model')) {
+        throw new Error('Replicate model error. The wan-video/wan-2.2-i2v-fast model may not be available.');
+      } else if (apiError.message?.includes('input')) {
+        throw new Error('Replicate input error. Please check the image URL and prompt format.');
+      } else {
+        throw new Error(`Replicate API error: ${apiError.message || 'Unknown error'}`);
       }
     }
 
-    if (!videoUrl) {
-      throw new Error('Video generation timed out - please try again');
+    if (!output) {
+      console.error('Replicate API error: No output returned');
+      throw new Error('Video generation failed - no output returned');
     }
+
+    // According to wan model schema, output should be a simple string URI
+    let videoUrl;
+    if (typeof output === 'string') {
+      videoUrl = output;
+      console.log('Video URL received as string:', videoUrl);
+    } else {
+      console.error('Replicate API error: Expected string output but got:', typeof output, output);
+      throw new Error('Video generation failed - unexpected output format (expected string URI)');
+    }
+
+    // Validate that we got a proper URL
+    if (!videoUrl || !videoUrl.startsWith('http')) {
+      console.error('Replicate API error: Invalid video URL:', videoUrl);
+      throw new Error('Video generation failed - invalid video URL returned');
+    }
+
+    console.log('Video generation completed successfully:', videoUrl);
+
+    // Set thumbnail URL to the original image (Replicate doesn't provide separate thumbnails)
+    const thumbnailUrl = imageUrl;
 
     // Deduct credits and update stats
     const { error: updateError } = await supabase
@@ -291,8 +198,8 @@ serve(async (req) => {
         thumbnail_url: thumbnailUrl,
         prompt: prompt,
         duration: duration,
-        generation_id: generationJobId,
-        leonardo_image_id: finalLeonardoImageId
+        generation_id: crypto.randomUUID(), // Generate a unique ID for tracking
+        leonardo_image_id: null // No longer needed with Replicate
       });
 
     if (saveError) {
@@ -304,14 +211,14 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         videoUrl: videoUrl,
-        generationId: generationJobId,
+        generationId: crypto.randomUUID(), // Generate a unique ID for the response
         prompt: prompt,
         duration: duration,
         creditsRemaining: profile.credits - 1
       }),
-      { 
+      {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
+        status: 200
       }
     );
 

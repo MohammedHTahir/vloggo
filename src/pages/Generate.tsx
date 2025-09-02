@@ -77,75 +77,7 @@ const Generate = () => {
     return publicUrl;
   };
 
-  const uploadImageToLeonardo = async (file: File): Promise<string> => {
-    try {
-      // Get file extension
-      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-      
-      console.log('Calling init-leonardo-upload with extension:', fileExt);
-      
-      // Get presigned upload URL from Leonardo AI
-      const { data: initData, error: initError } = await supabase.functions.invoke('init-leonardo-upload', {
-        body: { extension: fileExt }
-      });
-      
-      console.log('Init Leonardo response:', { initData, initError });
-      
-      if (initError) {
-        console.error('Init Leonardo error:', initError);
-        throw new Error('Failed to initialize Leonardo upload: ' + initError.message);
-      }
-      
-      if (!initData?.uploadInitImage) {
-        console.error('No upload data in response:', initData);
-        throw new Error('No upload data received from Leonardo AI');
-      }
-      
-      if (!initData?.uploadInitImage) {
-        console.error('No upload data in response:', initData);
-        throw new Error('No upload data received from Leonardo AI');
-      }
-      
-      const { url: uploadUrl, fields, id: imageId } = initData.uploadInitImage;
-      console.log('Got upload URL and image ID:', { uploadUrl, imageId, fieldsCount: typeof fields === 'string' ? fields.length : Object.keys(fields || {}).length });
 
-      // Prepare base64
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      let binary = '';
-      const chunkSize = 0x8000;
-      for (let i = 0; i < uint8Array.length; i += chunkSize) {
-        const chunk = uint8Array.subarray(i, i + chunkSize);
-        binary += String.fromCharCode.apply(null, Array.from(chunk) as any);
-      }
-      const fileBase64 = btoa(binary);
-
-      // Upload via edge function to avoid CORS
-      const { data: uploadData, error: uploadError } = await supabase.functions.invoke('upload-leonardo-file', {
-        body: {
-          uploadUrl,
-          fields,
-          fileBase64,
-          filename: file.name,
-          contentType: file.type
-        }
-      });
-
-      console.log('upload-leonardo-file response:', { uploadData, uploadError });
-      if (uploadError) {
-        throw new Error(uploadError.message || 'Upload to Leonardo failed');
-      }
-      if (!uploadData?.success) {
-        throw new Error('Upload to Leonardo failed');
-      }
-      
-      console.log('Upload successful, returning image ID:', imageId);
-      return imageId;
-    } catch (error) {
-      console.error('Error in uploadImageToLeonardo:', error);
-      throw error;
-    }
-  };
 
   const generateVideo = async () => {
     if (!selectedImage) {
@@ -179,15 +111,15 @@ const Generate = () => {
         });
       }, 1000);
 
-      // Upload image directly to Leonardo AI
-      toast.info('Uploading image to Leonardo AI...');
-      const leonardoImageId = await uploadImageToLeonardo(selectedImage);
+      // Upload image to Supabase storage first
+      toast.info('Uploading image...');
+      const imageUrl = await uploadImageToSupabase(selectedImage);
 
-      toast.info('Generating video... This may take a few minutes.');
-      
+      toast.info('Generating video with Replicate... This may take a few minutes.');
+
       const { data, error } = await supabase.functions.invoke('generate-video', {
         body: {
-          leonardoImageId,
+          imageUrl,
           prompt: prompt.trim(),
           duration
         }
