@@ -12,13 +12,13 @@ const Pricing = () => {
   const plans = [
     {
       name: "Starter",
-      price: "$2.50",
-      credits: 25,
+      price: "$19.99",
+      credits: 10,
       popular: false,
       icon: Zap,
       iconColor: "text-secondary",
       features: [
-        "25 AI image generations",
+        "10 AI image generations",
         "Basic editing tools",
         "Standard resolution",
         "Personal use license",
@@ -29,13 +29,13 @@ const Pricing = () => {
     },
     {
       name: "Creator",
-      price: "$8.00",
-      credits: 100,
+      price: "$74.75",
+      credits: 50,
       popular: true,
       icon: Sparkles,
       iconColor: "text-accent",
       features: [
-        "100 AI image generations",
+        "50 AI image generations",
         "Advanced editing suite",
         "High resolution exports",
         "Commercial use license",
@@ -48,13 +48,13 @@ const Pricing = () => {
     },
     {
       name: "Professional",
-      price: "$24.50",
-      credits: 350,
+      price: "$99.90",
+      credits: 100,
       popular: false,
       icon: Crown,
       iconColor: "text-primary",
       features: [
-        "350 AI image generations",
+        "100 AI image generations",
         "Full editing capabilities",
         "Ultra-high resolution",
         "Extended commercial license",

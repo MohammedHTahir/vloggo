@@ -169,6 +169,51 @@ serve(async (req) => {
 
     console.log('Video generation completed successfully:', videoUrl);
 
+    // Download video from Replicate and store in our Supabase storage
+    console.log('Downloading video from Replicate...');
+    let storageUrl = videoUrl; // Fallback to original URL if storage fails
+    
+    try {
+      // Download the video file
+      const videoResponse = await fetch(videoUrl);
+      if (!videoResponse.ok) {
+        throw new Error(`Failed to download video: ${videoResponse.statusText}`);
+      }
+      
+      const videoBlob = await videoResponse.blob();
+      console.log('Video downloaded, size:', videoBlob.size, 'bytes');
+      
+      // Generate unique filename
+      const videoFileName = `video_${crypto.randomUUID()}.mp4`;
+      const videoPath = `uploads/${user.id}/${videoFileName}`;
+      
+      // Upload to Supabase storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('videos')
+        .upload(videoPath, videoBlob, {
+          contentType: 'video/mp4',
+          upsert: false
+        });
+      
+      if (uploadError) {
+        console.error('Failed to upload video to storage:', uploadError);
+        throw new Error(`Storage upload failed: ${uploadError.message}`);
+      }
+      
+      // Get public URL for the stored video
+      const { data: { publicUrl } } = supabase.storage
+        .from('videos')
+        .getPublicUrl(videoPath);
+      
+      storageUrl = publicUrl;
+      console.log('Video successfully stored in Supabase storage:', storageUrl);
+      
+    } catch (storageError) {
+      console.error('Failed to store video in Supabase storage:', storageError);
+      console.log('Falling back to Replicate URL for now');
+      // Continue with original Replicate URL if storage fails
+    }
+
     // Set thumbnail URL to the original image (Replicate doesn't provide separate thumbnails)
     const thumbnailUrl = imageUrl;
 
@@ -187,14 +232,15 @@ serve(async (req) => {
       // Don't fail the request if profile update fails
     }
 
-    console.log(`Video generated successfully for user ${user.id}: ${videoUrl}`);
+    console.log(`Video generated successfully for user ${user.id}: ${storageUrl}`);
 
-    // Save video to database
+    // Save video to database with both URLs
     const { error: saveError } = await supabase
       .from('videos')
       .insert({
         user_id: user.id,
-        video_url: videoUrl,
+        video_url: videoUrl, // Keep original Replicate URL for reference
+        storage_url: storageUrl, // Our Supabase storage URL
         thumbnail_url: thumbnailUrl,
         prompt: prompt,
         duration: duration,
@@ -210,7 +256,8 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        videoUrl: videoUrl,
+        videoUrl: storageUrl, // Return our stored video URL
+        originalVideoUrl: videoUrl, // Keep original for reference
         generationId: crypto.randomUUID(), // Generate a unique ID for the response
         prompt: prompt,
         duration: duration,

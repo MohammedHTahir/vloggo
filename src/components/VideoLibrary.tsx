@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 interface Video {
   id: string;
   video_url: string;
+  storage_url: string | null;
   thumbnail_url: string | null;
   prompt: string;
   duration: number;
@@ -40,14 +41,16 @@ export function VideoLibrary() {
     }
   };
 
-  const downloadVideo = async (videoUrl: string, prompt: string) => {
+  const downloadVideo = async (video: Video) => {
     try {
+      // Use storage_url if available, otherwise fall back to video_url
+      const videoUrl = video.storage_url || video.video_url;
       const response = await fetch(videoUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${prompt.slice(0, 30)}.mp4`;
+      a.download = `${video.prompt.slice(0, 30)}.mp4`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -116,7 +119,7 @@ export function VideoLibrary() {
             <video
               controls
               className="w-full h-full object-cover absolute inset-0"
-              src={video.video_url}
+              src={video.storage_url || video.video_url}
               onEnded={() => setPlayingVideoId(null)}
             />
           ) : (
@@ -153,7 +156,7 @@ export function VideoLibrary() {
               size="sm"
               variant="glass-primary"
               className="rounded-full"
-              onClick={() => downloadVideo(video.video_url, video.prompt)}
+              onClick={() => downloadVideo(video)}
             >
               <Download className="w-4 h-4" />
             </Button>

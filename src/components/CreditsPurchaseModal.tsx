@@ -17,9 +17,9 @@ const CreditsPurchaseModal = ({ open, onOpenChange }: CreditsPurchaseModalProps)
   const creditPackages = [
     {
       name: "Starter Pack",
-      credits: 25,
-      price: 2.50,
-      originalPrice: 5.00,
+      credits: 10,
+      price: 19.99,
+      originalPrice: 39.90,
       popular: false,
       icon: Zap,
       iconColor: "text-secondary",
@@ -28,9 +28,9 @@ const CreditsPurchaseModal = ({ open, onOpenChange }: CreditsPurchaseModalProps)
     },
     {
       name: "Creator Pack",
-      credits: 100,
-      price: 8.00,
-      originalPrice: 20.00,
+      credits: 50,
+      price: 74.75,
+      originalPrice: 149.50,
       popular: true,
       icon: Sparkles,
       iconColor: "text-accent",
@@ -39,9 +39,9 @@ const CreditsPurchaseModal = ({ open, onOpenChange }: CreditsPurchaseModalProps)
     },
     {
       name: "Professional Pack",
-      credits: 350,
-      price: 24.50,
-      originalPrice: 70.00,
+      credits: 100,
+      price: 99.90,
+      originalPrice: 199.00,
       popular: false,
       icon: Crown,
       iconColor: "text-primary",
