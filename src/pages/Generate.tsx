@@ -13,7 +13,9 @@ import {
   ArrowLeft,
   ImageIcon,
   VideoIcon,
-  Zap
+  Zap,
+  Sparkles,
+  RefreshCw
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -26,7 +28,7 @@ const Generate = () => {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [prompt, setPrompt] = useState("Transform this image into a cinematic video with smooth camera movement");
-  const [duration, setDuration] = useState(5);
+  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [generatedVideo, setGeneratedVideo] = useState<{
@@ -121,7 +123,7 @@ const Generate = () => {
         body: {
           imageUrl,
           prompt: prompt.trim(),
-          duration
+          duration: 5 // Default duration
         }
       });
 
@@ -143,7 +145,7 @@ const Generate = () => {
       setGeneratedVideo({
         url: data.videoUrl,
         prompt: data.prompt,
-        duration: data.duration
+        duration: 5 // Default duration
       });
 
       toast.success('Video generated successfully!');
@@ -177,6 +179,40 @@ const Generate = () => {
       toast.success('Video download started');
     } catch (error) {
       toast.error('Failed to download video');
+    }
+  };
+
+  const enhancePrompt = async () => {
+    if (!prompt.trim()) {
+      toast.error('Please enter a prompt to enhance');
+      return;
+    }
+
+    setIsEnhancingPrompt(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('enhance-prompt', {
+        body: {
+          prompt: prompt.trim(),
+        }
+      });
+
+      if (error) {
+        console.error('Prompt enhancement error:', error);
+        throw new Error(error.message || 'Failed to enhance prompt');
+      }
+
+      if (!data?.success || !data?.enhancedPrompt) {
+        throw new Error('No enhanced prompt received');
+      }
+
+      // Update the prompt textbox with the enhanced prompt
+      setPrompt(data.enhancedPrompt.enhancedPrompt);
+      toast.success('Prompt enhanced successfully!');
+    } catch (error: any) {
+      console.error('Error enhancing prompt:', error);
+      toast.error(error.message || 'Failed to enhance prompt');
+    } finally {
+      setIsEnhancingPrompt(false);
     }
   };
 
@@ -282,28 +318,36 @@ const Generate = () => {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Motion Prompt
-                      </label>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-medium">
+                          Motion Prompt
+                        </label>
+                        <Button
+                          onClick={enhancePrompt}
+                          disabled={isEnhancingPrompt || !prompt.trim()}
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                        >
+                          {isEnhancingPrompt ? (
+                            <>
+                              <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                              Enhancing...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3 h-3 mr-1" />
+                              Enhance with AI
+                            </>
+                          )}
+                        </Button>
+                      </div>
                       <Textarea
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="Describe how you want the image to move..."
+                        placeholder="Describe how you want the image to move... (e.g., 'make it zoom in slowly')"
                         className="resize-none"
-                        rows={3}
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Duration (seconds)
-                      </label>
-                      <Input
-                        type="number"
-                        min="3"
-                        max="10"
-                        value={duration}
-                        onChange={(e) => setDuration(Number(e.target.value))}
+                        rows={8}
                       />
                     </div>
 
@@ -337,6 +381,7 @@ const Generate = () => {
                     )}
                   </CardContent>
                 </Card>
+
               </div>
 
               {/* Output Section */}
