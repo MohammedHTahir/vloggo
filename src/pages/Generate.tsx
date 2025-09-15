@@ -36,6 +36,10 @@ const Generate = () => {
     prompt: string;
     duration: number;
   } | null>(null);
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<string>('');
+  const [retryCount, setRetryCount] = useState(0);
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -81,6 +85,125 @@ const Generate = () => {
 
 
 
+  const checkVideoStatus = async (genId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('check-video-status', {
+        body: {
+          generationId: genId
+        }
+      });
+
+      if (error) {
+        console.error('Status check error:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Status check failed:', error);
+      return null;
+    }
+  };
+
+  const startPolling = (genId: string) => {
+    setIsPolling(true);
+    setProgress(10);
+    setGenerationStatus('Starting video generation...');
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        // Check if user is authenticated
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.error('No active session found');
+          clearInterval(pollInterval);
+          setIsPolling(false);
+          toast.error('Session expired. Please log in again.');
+          return;
+        }
+
+        console.log('Polling with session, user ID:', session.user.id);
+
+        // Call the check-video-status function to check and advance the pipeline
+        const { data, error } = await supabase.functions.invoke('check-video-status', {
+          body: { generationId: genId }
+        });
+
+        if (error) {
+          console.error('Pipeline processing error:', error);
+          return;
+        }
+
+        if (!data || !data.success) {
+          console.error('Pipeline processing failed:', data);
+          return;
+        }
+
+        console.log('Pipeline status:', data.status);
+
+        if (data.status === 'completed') {
+          clearInterval(pollInterval);
+          setIsPolling(false);
+          setProgress(100);
+          setGenerationStatus('Video with audio ready!');
+          
+          // Fetch the final generation record to get the storage URL
+          const { data: generation } = await supabase
+            .from('video_generations' as any)
+            .select('*')
+            .eq('id', genId)
+            .single();
+
+          if ((generation as any)?.storage_url) {
+            setGeneratedVideo({
+              url: (generation as any).storage_url,
+              prompt: (generation as any).prompt,
+              duration: (generation as any).duration || 5
+            });
+            toast.success('Video with audio generated successfully!');
+          }
+        } else if (data.status === 'failed') {
+          clearInterval(pollInterval);
+          setIsPolling(false);
+          setGenerationStatus('Generation failed');
+          
+          // Show more user-friendly error messages
+          let errorMessage = data.error || 'Video generation failed';
+          if (errorMessage.includes('high server load')) {
+            errorMessage = 'Server is currently busy. Please try again with a simpler prompt or try again later.';
+          } else if (errorMessage.includes('CUDA out of memory')) {
+            errorMessage = 'Server is currently overloaded. Please try again with a simpler prompt or try again later.';
+          } else if (errorMessage.includes('authentication')) {
+            errorMessage = 'Authentication error. Please contact support.';
+          }
+          
+          toast.error(errorMessage);
+          
+          // Reset retry count for next attempt
+          setRetryCount(0);
+        } else if (data.status === 'processing') {
+          setProgress(30);
+          setGenerationStatus('Generating video...');
+        } else if (data.status === 'adding_audio') {
+          setProgress(70);
+          setGenerationStatus('Adding audio...');
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }, 5000); // Poll every 5 seconds
+
+    // Stop polling after 15 minutes
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      setIsPolling(false);
+      if (!generatedVideo) {
+        setGenerationStatus('Generation taking longer than expected...');
+        toast.info('Video generation is taking longer than expected. Please check back later in your dashboard.');
+      }
+    }, 900000); // 15 minutes
+  };
+
   const generateVideo = async () => {
     if (!selectedImage) {
       toast.error('Please select an image first');
@@ -97,27 +220,27 @@ const Generate = () => {
       return;
     }
 
+    // Check if user is authenticated
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error('Session expired. Please log in again.');
+      return;
+    }
+
+    console.log('Generating video with session, user ID:', session.user.id);
+
     setIsGenerating(true);
     setProgress(0);
     setGeneratedVideo(null);
+    setGenerationId(null);
+    setRetryCount(0);
 
     try {
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 1000);
-
       // Upload image to Supabase storage first
       toast.info('Uploading image...');
       const imageUrl = await uploadImageToSupabase(selectedImage);
 
-      toast.info('Generating video with Replicate... This may take a few minutes.');
+      toast.info('Starting video generation... This will take a few minutes.');
 
       const { data, error } = await supabase.functions.invoke('generate-video', {
         body: {
@@ -129,9 +252,6 @@ const Generate = () => {
 
       console.log('Edge function response:', { data, error });
 
-      clearInterval(progressInterval);
-      setProgress(100);
-
       if (error) {
         console.error('Edge function error:', error);
         throw new Error(error.message || 'Edge function failed');
@@ -142,23 +262,18 @@ const Generate = () => {
         throw new Error(data?.error || data?.details || 'Video generation failed');
       }
 
-      setGeneratedVideo({
-        url: data.videoUrl,
-        prompt: data.prompt,
-        duration: 5 // Default duration
-      });
-
-      toast.success('Video generated successfully!');
+      // Store generation ID and start polling
+      setGenerationId(data.generationId);
+      toast.info('Video generation started! We\'ll notify you when it\'s ready.');
       
-      // Update the profile context to reflect new credit balance
-      // This will be reflected in the dashboard
+      // Start polling for status updates
+      startPolling(data.generationId);
       
     } catch (error: any) {
       console.error('Video generation error:', error);
       toast.error(error.message || 'Failed to generate video. Please try again.');
     } finally {
       setIsGenerating(false);
-      setProgress(0);
     }
   };
 
@@ -353,7 +468,7 @@ const Generate = () => {
 
                     <Button
                       onClick={generateVideo}
-                      disabled={!selectedImage || isGenerating || (profile?.credits || 0) < 1}
+                      disabled={!selectedImage || isGenerating || isPolling || (profile?.credits || 0) < 1}
                       className="w-full"
                       variant="glass-primary"
                       size="lg"
@@ -361,6 +476,11 @@ const Generate = () => {
                       {isGenerating ? (
                         <>
                           <Wand2 className="w-4 h-4 mr-2 animate-spin" />
+                          Starting Generation...
+                        </>
+                      ) : isPolling ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                           Generating Video...
                         </>
                       ) : (
@@ -371,12 +491,63 @@ const Generate = () => {
                       )}
                     </Button>
 
-                    {isGenerating && (
+                    {(isGenerating || isPolling) && (
                       <div className="space-y-2">
                         <Progress value={progress} className="w-full" />
                         <p className="text-sm text-center text-muted-foreground">
-                          Generating your video... Please wait.
+                          {generationStatus || (isGenerating 
+                            ? "Starting video generation..." 
+                            : progress <= 40 
+                              ? "Step 1: Generating video..." 
+                              : progress <= 70 
+                                ? "Step 2: Adding audio..." 
+                                : "Finalizing your video...")}
                         </p>
+                        {generationId && (
+                          <p className="text-xs text-center text-muted-foreground">
+                            Generation ID: {generationId.substring(0, 8)}...
+                          </p>
+                        )}
+                        <div className="flex justify-center space-x-2 text-xs text-muted-foreground">
+                          <span className={progress >= 20 ? "text-accent" : ""}>1. Video</span>
+                          <span>→</span>
+                          <span className={progress >= 70 ? "text-accent" : ""}>2. Audio</span>
+                          <span>→</span>
+                          <span className={progress >= 100 ? "text-accent" : ""}>3. Complete</span>
+                        </div>
+                        {isPolling && generationId && (
+                          <Button
+                            onClick={async () => {
+                              const statusData = await checkVideoStatus(generationId);
+                              if (statusData?.status === 'completed') {
+                                setIsPolling(false);
+                                setProgress(100);
+                                setGenerationStatus('Video with audio ready!');
+                                
+                                const { data: generation } = await supabase
+                                  .from('video_generations' as any)
+                                  .select('*')
+                                  .eq('id', generationId)
+                                  .single();
+
+                                if ((generation as any)?.storage_url) {
+                                  setGeneratedVideo({
+                                    url: (generation as any).storage_url,
+                                    prompt: (generation as any).prompt,
+                                    duration: (generation as any).duration || 5
+                                  });
+                                  toast.success('Video with audio generated successfully!');
+                                }
+                              }
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="mx-auto"
+                          >
+                            <RefreshCw className="w-3 h-3 mr-1" />
+                            Check Status
+                          </Button>
+                        )}
                       </div>
                     )}
                   </CardContent>

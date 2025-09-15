@@ -60,20 +60,17 @@ const Hero = () => {
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Button>
             </Link>
-            <button
+            <Button 
+              variant="glass-primary" 
+              size="lg" 
+              className="text-lg px-8 py-4 h-auto"
               onClick={() => {
                 const element = document.querySelector('#pricing');
                 element?.scrollIntoView({ behavior: 'smooth' });
               }}
             >
-              <Button 
-                variant="glass-primary" 
-                size="lg" 
-                className="text-lg px-8 py-4 h-auto"
-              >
-                View Pricing
-              </Button>
-            </button>
+              View Pricing
+            </Button>
           </div>
           
           {/* Feature Pills */}

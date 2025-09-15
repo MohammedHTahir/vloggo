@@ -92,6 +92,57 @@ export type Database = {
         }
         Relationships: []
       }
+      video_generations: {
+        Row: {
+          audio_prediction_id: string | null
+          completed_at: string | null
+          created_at: string | null
+          duration: number
+          error_message: string | null
+          id: string
+          image_url: string
+          prediction_id: string
+          prompt: string
+          status: string
+          storage_url: string | null
+          updated_at: string | null
+          user_id: string
+          video_url: string | null
+        }
+        Insert: {
+          audio_prediction_id?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          duration?: number
+          error_message?: string | null
+          id?: string
+          image_url: string
+          prediction_id: string
+          prompt: string
+          status?: string
+          storage_url?: string | null
+          updated_at?: string | null
+          user_id: string
+          video_url?: string | null
+        }
+        Update: {
+          audio_prediction_id?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          duration?: number
+          error_message?: string | null
+          id?: string
+          image_url?: string
+          prediction_id?: string
+          prompt?: string
+          status?: string
+          storage_url?: string | null
+          updated_at?: string | null
+          user_id?: string
+          video_url?: string | null
+        }
+        Relationships: []
+      }
       videos: {
         Row: {
           created_at: string
@@ -100,6 +151,7 @@ export type Database = {
           id: string
           leonardo_image_id: string | null
           prompt: string
+          storage_url: string | null
           thumbnail_url: string | null
           updated_at: string
           user_id: string
@@ -112,6 +164,7 @@ export type Database = {
           id?: string
           leonardo_image_id?: string | null
           prompt: string
+          storage_url?: string | null
           thumbnail_url?: string | null
           updated_at?: string
           user_id: string
@@ -124,6 +177,7 @@ export type Database = {
           id?: string
           leonardo_image_id?: string | null
           prompt?: string
+          storage_url?: string | null
           thumbnail_url?: string | null
           updated_at?: string
           user_id?: string
@@ -277,3 +331,5 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
+// Force TypeScript to recognize the updated types

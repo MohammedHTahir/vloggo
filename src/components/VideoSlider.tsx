@@ -1,14 +1,23 @@
+import videoSlider1 from "../assets/video-slider-1.jpg";
+import videoSlider2 from "../assets/video-slider-2.jpg";
+import videoSlider3 from "../assets/video-slider-3.jpg";
+import videoSlider4 from "../assets/video-slider-4.jpg";
+import videoSlider5 from "../assets/video-slider-5.jpg";
+import videoSlider6 from "../assets/video-slider-6.jpg";
+import videoSlider7 from "../assets/video-slider-7.jpg";
+import videoSlider8 from "../assets/video-slider-8.jpg";
+
 const VideoSlider = () => {
-  // Mock video data with actual video URLs
-  const videos = [
-    { id: 1, videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4" },
-    { id: 2, videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-waves-in-the-water-1164-large.mp4" },
-    { id: 3, videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-tree-with-yellow-flowers-1173-large.mp4" },
-    { id: 4, videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-countryside-meadow-4075-large.mp4" },
-    { id: 5, videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-spinning-around-the-earth-29351-large.mp4" },
-    { id: 6, videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-clouds-moving-on-blue-sky-2408-large.mp4" },
-    { id: 7, videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-raindrops-on-glass-4142-large.mp4" },
-    { id: 8, videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-sunset-over-green-hills-2167-large.mp4" },
+  // Generated AI images for the slider
+  const images = [
+    { id: 1, imageUrl: videoSlider1, alt: "Serene mountain landscape at sunset" },
+    { id: 2, imageUrl: videoSlider2, alt: "Abstract flowing liquid colors" },
+    { id: 3, imageUrl: videoSlider3, alt: "Futuristic city skyline at night" },
+    { id: 4, imageUrl: videoSlider4, alt: "Peaceful forest with sunlight" },
+    { id: 5, imageUrl: videoSlider5, alt: "Ocean waves on rocky coastline" },
+    { id: 6, imageUrl: videoSlider6, alt: "Aurora borealis over mountains" },
+    { id: 7, imageUrl: videoSlider7, alt: "Golden wheat field at sunset" },
+    { id: 8, imageUrl: videoSlider8, alt: "Space nebula with swirling colors" },
   ];
 
   return (
@@ -29,18 +38,15 @@ const VideoSlider = () => {
       {/* First Row - Moving Right */}
       <div className="relative mb-8">
         <div className="flex gap-6 animate-slide-right">
-          {[...videos, ...videos].map((video, index) => (
+          {[...images, ...images].map((image, index) => (
             <div
               key={`row1-${index}`}
               className="relative min-w-80 h-48 glass-card rounded-2xl overflow-hidden hover:scale-105 transition-transform duration-300 cursor-pointer"
             >
-              <video
-                src={video.videoUrl}
+              <img
+                src={image.imageUrl}
+                alt={image.alt}
                 className="w-full h-full object-cover"
-                autoPlay
-                loop
-                muted
-                playsInline
               />
             </div>
           ))}
@@ -50,18 +56,15 @@ const VideoSlider = () => {
       {/* Second Row - Moving Left */}
       <div className="relative">
         <div className="flex gap-6 animate-slide-left">
-          {[...videos.slice().reverse(), ...videos.slice().reverse()].map((video, index) => (
+          {[...images.slice().reverse(), ...images.slice().reverse()].map((image, index) => (
             <div
               key={`row2-${index}`}
               className="relative min-w-80 h-48 glass-card rounded-2xl overflow-hidden hover:scale-105 transition-transform duration-300 cursor-pointer"
             >
-              <video
-                src={video.videoUrl}
+              <img
+                src={image.imageUrl}
+                alt={image.alt}
                 className="w-full h-full object-cover"
-                autoPlay
-                loop
-                muted
-                playsInline
               />
             </div>
           ))}

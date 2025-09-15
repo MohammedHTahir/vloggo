@@ -122,14 +122,23 @@ serve(async (req) => {
 
     console.log('Replicate input:', JSON.stringify(input, null, 2));
 
-    // Call Replicate API with error handling
-    let output;
+    // Call Replicate API with error handling - using predictions for async processing
+    let prediction;
     try {
-      console.log('Making Replicate API call to wan-video/wan-2.2-i2v-fast...');
-      output = await replicate.run("wan-video/wan-2.2-i2v-fast", { input });
-      console.log('Replicate API call completed');
-      console.log('Replicate raw output type:', typeof output);
-      console.log('Replicate raw output:', JSON.stringify(output, null, 2));
+      console.log('Creating Replicate prediction for wan-video/wan-2.2-i2v-fast...');
+      
+      // Build webhook URL with secret token
+      const WEBHOOK_BASE_URL = Deno.env.get("SUPABASE_URL") || "https://fsrabyevssdxaglriclw.supabase.co";
+      const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET") || "your-secret-key-here";
+      const webhookWan = `${WEBHOOK_BASE_URL}/functions/v1/video-pipeline-webhook?stage=wan&token=${WEBHOOK_SECRET}`;
+      
+        prediction = await replicate.predictions.create({
+        model: "wan-video/wan-2.2-i2v-fast",
+        input: input,
+        webhook: webhookWan,
+        webhook_events_filter: ["completed"]
+      });
+      console.log('Replicate prediction created:', prediction.id);
     } catch (apiError: any) {
       console.error('Replicate API call failed:', apiError);
       console.error('API Error details:', JSON.stringify(apiError, null, 2));
@@ -146,121 +155,34 @@ serve(async (req) => {
       }
     }
 
-    if (!output) {
-      console.error('Replicate API error: No output returned');
-      throw new Error('Video generation failed - no output returned');
-    }
-
-    // According to wan model schema, output should be a simple string URI
-    let videoUrl;
-    if (typeof output === 'string') {
-      videoUrl = output;
-      console.log('Video URL received as string:', videoUrl);
-    } else {
-      console.error('Replicate API error: Expected string output but got:', typeof output, output);
-      throw new Error('Video generation failed - unexpected output format (expected string URI)');
-    }
-
-    // Validate that we got a proper URL
-    if (!videoUrl || !videoUrl.startsWith('http')) {
-      console.error('Replicate API error: Invalid video URL:', videoUrl);
-      throw new Error('Video generation failed - invalid video URL returned');
-    }
-
-    console.log('Video generation completed successfully:', videoUrl);
-
-    // Download video from Replicate and store in our Supabase storage
-    console.log('Downloading video from Replicate...');
-    let storageUrl = videoUrl; // Fallback to original URL if storage fails
-    
-    try {
-      // Download the video file
-      const videoResponse = await fetch(videoUrl);
-      if (!videoResponse.ok) {
-        throw new Error(`Failed to download video: ${videoResponse.statusText}`);
-      }
-      
-      const videoBlob = await videoResponse.blob();
-      console.log('Video downloaded, size:', videoBlob.size, 'bytes');
-      
-      // Generate unique filename
-      const videoFileName = `video_${crypto.randomUUID()}.mp4`;
-      const videoPath = `uploads/${user.id}/${videoFileName}`;
-      
-      // Upload to Supabase storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('videos')
-        .upload(videoPath, videoBlob, {
-          contentType: 'video/mp4',
-          upsert: false
-        });
-      
-      if (uploadError) {
-        console.error('Failed to upload video to storage:', uploadError);
-        throw new Error(`Storage upload failed: ${uploadError.message}`);
-      }
-      
-      // Get public URL for the stored video
-      const { data: { publicUrl } } = supabase.storage
-        .from('videos')
-        .getPublicUrl(videoPath);
-      
-      storageUrl = publicUrl;
-      console.log('Video successfully stored in Supabase storage:', storageUrl);
-      
-    } catch (storageError) {
-      console.error('Failed to store video in Supabase storage:', storageError);
-      console.log('Falling back to Replicate URL for now');
-      // Continue with original Replicate URL if storage fails
-    }
-
-    // Set thumbnail URL to the original image (Replicate doesn't provide separate thumbnails)
-    const thumbnailUrl = imageUrl;
-
-    // Deduct credits and update stats
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({
-        credits: profile.credits - 1,
-        videos_generated: (profile.videos_generated || 0) + 1,
-        total_render_time: (profile.total_render_time || 0) + duration
-      })
-      .eq('id', user.id);
-
-    if (updateError) {
-      console.error('Failed to update user profile:', updateError);
-      // Don't fail the request if profile update fails
-    }
-
-    console.log(`Video generated successfully for user ${user.id}: ${storageUrl}`);
-
-    // Save video to database with both URLs
-    const { error: saveError } = await supabase
-      .from('videos')
+    // Save the prediction to database for tracking
+    const generationId = crypto.randomUUID();
+    const { error: savePredictionError } = await supabase
+      .from('video_generations')
       .insert({
+        id: generationId,
         user_id: user.id,
-        video_url: videoUrl, // Keep original Replicate URL for reference
-        storage_url: storageUrl, // Our Supabase storage URL
-        thumbnail_url: thumbnailUrl,
+        prediction_id: prediction.id,
+        status: 'processing',
+        image_url: imageUrl,
         prompt: prompt,
         duration: duration,
-        generation_id: crypto.randomUUID(), // Generate a unique ID for tracking
-        leonardo_image_id: null // No longer needed with Replicate
+        created_at: new Date().toISOString()
       });
 
-    if (saveError) {
-      console.error('Failed to save video to database:', saveError);
+    if (savePredictionError) {
+      console.error('Failed to save prediction to database:', savePredictionError);
       // Don't fail the request if saving fails
     }
 
+    // Return immediately with generation ID for polling
     return new Response(
       JSON.stringify({
         success: true,
-        videoUrl: storageUrl, // Return our stored video URL
-        originalVideoUrl: videoUrl, // Keep original for reference
-        generationId: crypto.randomUUID(), // Generate a unique ID for the response
-        prompt: prompt,
-        duration: duration,
+        generationId: generationId,
+        predictionId: prediction.id,
+        status: 'processing',
+        message: 'Video generation started. Please check back in a few minutes.',
         creditsRemaining: profile.credits - 1
       }),
       {
