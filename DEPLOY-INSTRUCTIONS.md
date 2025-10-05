@@ -10,6 +10,7 @@ The webhook at Supabase has **TWO issues**:
 ✅ No audio stitching - uses wan-2.5-i2v native audio
 ✅ Stores video directly in Supabase storage
 ✅ Duration set to 10 seconds (not 5)
+✅ All wan-2.5-i2v parameters: duration, resolution, negative_prompt, enable_prompt_expansion
 
 ## Deploy Steps (Supabase Dashboard)
 

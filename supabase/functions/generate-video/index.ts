@@ -118,6 +118,10 @@ serve(async (req) => {
     const input = {
       image: imageUrl,
       prompt: prompt,
+      duration: duration,
+      resolution: "720p",
+      negative_prompt: "",
+      enable_prompt_expansion: true
     };
 
     console.log('Replicate input:', JSON.stringify(input, null, 2));
