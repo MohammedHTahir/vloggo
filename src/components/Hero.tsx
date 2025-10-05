@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Sparkles, Zap, Image as ImageIcon } from "lucide-react";
+import { ArrowRight, Sparkles, Zap, Image as ImageIcon, Volume2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import heroImage from "@/assets/hero-ai-bg.jpg";
 
@@ -44,8 +44,8 @@ const Hero = () => {
           
           {/* Subtitle */}
           <p className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-3xl mx-auto leading-relaxed">
-            Unleash your creativity with Vloggo' advanced AI image-to-video generation platform. 
-            Transform static images into stunning dynamic videos with just a few clicks.
+            Unleash your creativity with Vloggo's advanced AI image-to-video generation platform. 
+            Transform static images into stunning dynamic videos <span className="gradient-text font-semibold">with native audio</span> in just a few clicks.
           </p>
           
           {/* CTA Buttons */}
@@ -78,6 +78,10 @@ const Hero = () => {
             <div className="glass-card px-4 py-2 rounded-full flex items-center gap-2">
               <Zap className="w-4 h-4 text-accent" />
               <span className="text-sm">Instant Video Creation</span>
+            </div>
+            <div className="glass-card px-4 py-2 rounded-full flex items-center gap-2">
+              <Volume2 className="w-4 h-4 text-accent" />
+              <span className="text-sm">Native Audio Generation</span>
             </div>
             <div className="glass-card px-4 py-2 rounded-full flex items-center gap-2">
               <ImageIcon className="w-4 h-4 text-secondary" />

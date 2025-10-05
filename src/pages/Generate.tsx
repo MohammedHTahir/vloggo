@@ -27,7 +27,7 @@ const Generate = () => {
   
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
-  const [prompt, setPrompt] = useState("Transform this image into a cinematic video with smooth camera movement");
+  const [prompt, setPrompt] = useState("A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio");
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -236,11 +236,23 @@ const Generate = () => {
     setRetryCount(0);
 
     try {
+      // Simulate progress
+      const progressInterval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 2000);
+
       // Upload image to Supabase storage first
       toast.info('Uploading image...');
       const imageUrl = await uploadImageToSupabase(selectedImage);
 
-      toast.info('Starting video generation... This will take a few minutes.');
+      toast.info('Generating video with audio... This may take a few minutes.');
+      setProgress(20);
 
       const { data, error } = await supabase.functions.invoke('generate-video', {
         body: {
@@ -252,6 +264,9 @@ const Generate = () => {
 
       console.log('Edge function response:', { data, error });
 
+      clearInterval(progressInterval);
+      setProgress(100);
+
       if (error) {
         console.error('Edge function error:', error);
         throw new Error(error.message || 'Edge function failed');
@@ -262,18 +277,22 @@ const Generate = () => {
         throw new Error(data?.error || data?.details || 'Video generation failed');
       }
 
-      // Store generation ID and start polling
+      // Video is ready immediately with the new wan-2.5 model!
+      setGeneratedVideo({
+        url: data.videoUrl,
+        prompt: data.prompt,
+        duration: data.duration || 5
+      });
+
       setGenerationId(data.generationId);
-      toast.info('Video generation started! We\'ll notify you when it\'s ready.');
-      
-      // Start polling for status updates
-      startPolling(data.generationId);
+      toast.success('Video generated successfully with audio!');
       
     } catch (error: any) {
       console.error('Video generation error:', error);
       toast.error(error.message || 'Failed to generate video. Please try again.');
     } finally {
       setIsGenerating(false);
+      setProgress(0);
     }
   };
 
@@ -395,7 +414,7 @@ const Generate = () => {
                 Transform <span className="gradient-text">Images</span> into <span className="gradient-text">Videos</span>
               </h1>
               <p className="text-xl text-muted-foreground">
-                Upload an image and watch it come to life with AI-powered video generation
+                Upload an image and watch it come to life with AI-powered video generation <span className="gradient-text font-semibold">with audio</span>
               </p>
             </div>
 
@@ -482,7 +501,7 @@ const Generate = () => {
                       <Textarea
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="Describe how you want the image to move... (e.g., 'make it zoom in slowly')"
+                        placeholder="Describe the scene and atmosphere... (e.g., 'A serene forest with gentle wind and rustling leaves'). Audio will be generated automatically!"
                         className="resize-none"
                         rows={8}
                       />
