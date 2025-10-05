@@ -43,33 +43,90 @@ export function VideoLibrary() {
 
   const downloadVideo = async (video: Video) => {
     try {
-      // Use storage_url if available, otherwise fall back to video_url
+      // Prioritize storage_url, fall back to video_url
       const videoUrl = video.storage_url || video.video_url;
-      const response = await fetch(videoUrl);
+      
+      if (!videoUrl) {
+        toast.error('Video URL not available');
+        return;
+      }
+
+      toast.info('Downloading video...');
+
+      // Fetch the video with proper CORS headers
+      const response = await fetch(videoUrl, {
+        method: 'GET',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'video/mp4',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch video: ${response.status}`);
+      }
+
       const blob = await response.blob();
+      
+      // Create download link
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${video.prompt.slice(0, 30)}.mp4`;
+      a.download = `${video.prompt.slice(0, 30).replace(/[^a-z0-9]/gi, '_')}_${video.id.slice(0, 8)}.mp4`;
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      
+      // Cleanup
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }, 100);
+      
       toast.success('Video downloaded successfully');
     } catch (error) {
       console.error('Error downloading video:', error);
-      toast.error('Failed to download video');
+      toast.error('Failed to download video. Please try again.');
     }
   };
 
   const deleteVideo = async (videoId: string) => {
     try {
+      // Find the video to get storage info
+      const video = videos.find(v => v.id === videoId);
+      
+      // Delete from database
       const { error } = await supabase
         .from('videos')
         .delete()
         .eq('id', videoId);
 
       if (error) throw error;
+      
+      // Try to delete from storage if storage_url exists
+      if (video?.storage_url) {
+        try {
+          // Extract the path from the storage URL
+          const url = new URL(video.storage_url);
+          const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/videos\/(.+)$/);
+          
+          if (pathMatch && pathMatch[1]) {
+            const filePath = decodeURIComponent(pathMatch[1]);
+            console.log('Deleting file from storage:', filePath);
+            
+            const { error: storageError } = await supabase.storage
+              .from('videos')
+              .remove([filePath]);
+            
+            if (storageError) {
+              console.error('Error deleting from storage:', storageError);
+              // Don't fail the whole operation if storage deletion fails
+            }
+          }
+        } catch (storageError) {
+          console.error('Error processing storage deletion:', storageError);
+          // Continue even if storage deletion fails
+        }
+      }
       
       setVideos(videos.filter(video => video.id !== videoId));
       toast.success('Video deleted successfully');
@@ -118,10 +175,14 @@ export function VideoLibrary() {
           {playingVideoId === video.id ? (
             <video
               controls
+              autoPlay
               className="w-full h-full object-cover absolute inset-0"
               src={video.storage_url || video.video_url}
               onEnded={() => setPlayingVideoId(null)}
-            />
+            >
+              <source src={video.storage_url || video.video_url} type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
           ) : (
             <>
               {video.thumbnail_url ? (

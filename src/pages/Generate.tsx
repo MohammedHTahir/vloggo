@@ -281,19 +281,41 @@ const Generate = () => {
     if (!generatedVideo) return;
     
     try {
-      const response = await fetch(generatedVideo.url);
+      toast.info('Downloading video...');
+      
+      // Fetch the video with proper CORS headers
+      const response = await fetch(generatedVideo.url, {
+        method: 'GET',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'video/mp4',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch video: ${response.status}`);
+      }
+
       const blob = await response.blob();
+      
+      // Create download link
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `generated-video-${Date.now()}.mp4`;
+      a.download = `vloggo-video-${Date.now()}.mp4`;
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      toast.success('Video download started');
+      
+      // Cleanup
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }, 100);
+      
+      toast.success('Video downloaded successfully');
     } catch (error) {
-      toast.error('Failed to download video');
+      console.error('Error downloading video:', error);
+      toast.error('Failed to download video. Please try again.');
     }
   };
 

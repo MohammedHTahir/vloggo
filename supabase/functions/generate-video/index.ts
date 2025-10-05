@@ -38,10 +38,14 @@ serve(async (req) => {
     console.log('Replicate client initialized successfully');
 
     // Initialize Supabase client
-    const supabaseUrl = 'https://fsrabyevssdxaglriclw.supabase.co';
-    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZzcmFieWV2c3NkeGFnbHJpY2x3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzI4MzYsImV4cCI6MjA3MDkwODgzNn0.7AGyjAJZSnwQIVF3UZCP_7m_73_-5ba6kin1E1VsecQ';
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
-    const supabase = createClient(supabaseUrl, supabaseKey, {
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Missing Supabase credentials');
+    }
+    
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       global: {
         headers: { Authorization: req.headers.get('Authorization')! },
       },
@@ -155,13 +159,116 @@ serve(async (req) => {
       }
     }
 
+<<<<<<< HEAD
     // Save the prediction to database for tracking
     const generationId = crypto.randomUUID();
     const { error: savePredictionError } = await supabase
       .from('video_generations')
+=======
+    if (!output) {
+      console.error('Replicate API error: No output returned');
+      throw new Error('Video generation failed - no output returned');
+    }
+
+    // According to wan model schema, output should be a simple string URI
+    let videoUrl;
+    if (typeof output === 'string') {
+      videoUrl = output;
+      console.log('Video URL received as string:', videoUrl);
+    } else {
+      console.error('Replicate API error: Expected string output but got:', typeof output, output);
+      throw new Error('Video generation failed - unexpected output format (expected string URI)');
+    }
+
+    // Validate that we got a proper URL
+    if (!videoUrl || !videoUrl.startsWith('http')) {
+      console.error('Replicate API error: Invalid video URL:', videoUrl);
+      throw new Error('Video generation failed - invalid video URL returned');
+    }
+
+    console.log('Video generation completed successfully:', videoUrl);
+
+    // Download video from Replicate and store in our Supabase storage
+    console.log('Downloading video from Replicate...');
+    let storageUrl: string | null = null;
+    
+    try {
+      // Download the video file
+      console.log('Fetching video from:', videoUrl);
+      const videoResponse = await fetch(videoUrl);
+      if (!videoResponse.ok) {
+        throw new Error(`Failed to download video: ${videoResponse.status} ${videoResponse.statusText}`);
+      }
+      
+      const videoBlob = await videoResponse.blob();
+      console.log('Video downloaded, size:', videoBlob.size, 'bytes', 'type:', videoBlob.type);
+      
+      // Generate unique filename
+      const videoFileName = `video_${crypto.randomUUID()}.mp4`;
+      const videoPath = `uploads/${user.id}/${videoFileName}`;
+      
+      console.log('Uploading to Supabase storage, path:', videoPath);
+      
+      // Upload to Supabase storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('videos')
+        .upload(videoPath, videoBlob, {
+          contentType: 'video/mp4',
+          upsert: false,
+          cacheControl: '3600'
+        });
+      
+      if (uploadError) {
+        console.error('Failed to upload video to storage:', uploadError);
+        throw new Error(`Storage upload failed: ${uploadError.message}`);
+      }
+      
+      console.log('Upload successful:', uploadData);
+      
+      // Get public URL for the stored video
+      const { data: { publicUrl } } = supabase.storage
+        .from('videos')
+        .getPublicUrl(videoPath);
+      
+      storageUrl = publicUrl;
+      console.log('Video successfully stored in Supabase storage:', storageUrl);
+      
+    } catch (storageError: any) {
+      console.error('Failed to store video in Supabase storage:', storageError);
+      console.error('Storage error details:', storageError.message);
+      // Don't fall back - we want to know if storage fails
+      throw new Error(`Failed to store video in Supabase storage: ${storageError.message}`);
+    }
+
+    // Set thumbnail URL to the original image (Replicate doesn't provide separate thumbnails)
+    const thumbnailUrl = imageUrl;
+
+    // Deduct credits and update stats
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        credits: profile.credits - 1,
+        videos_generated: (profile.videos_generated || 0) + 1,
+        total_render_time: (profile.total_render_time || 0) + duration
+      })
+      .eq('id', user.id);
+
+    if (updateError) {
+      console.error('Failed to update user profile:', updateError);
+      // Don't fail the request if profile update fails
+    }
+
+    console.log(`Video generated and stored successfully for user ${user.id}: ${storageUrl}`);
+
+    // Save video to database with storage URL
+    const generationId = crypto.randomUUID();
+    const { error: saveError } = await supabase
+      .from('videos')
+>>>>>>> 51e1604 (made changes to the supabase storage)
       .insert({
         id: generationId,
         user_id: user.id,
+<<<<<<< HEAD
         prediction_id: prediction.id,
         status: 'processing',
         image_url: imageUrl,
@@ -183,6 +290,32 @@ serve(async (req) => {
         predictionId: prediction.id,
         status: 'processing',
         message: 'Video generation started. Please check back in a few minutes.',
+=======
+        video_url: videoUrl, // Original Replicate URL for reference
+        storage_url: storageUrl, // Our Supabase storage URL (this is what we'll use)
+        thumbnail_url: thumbnailUrl,
+        prompt: prompt,
+        duration: duration,
+        generation_id: generationId,
+        leonardo_image_id: null
+      });
+
+    if (saveError) {
+      console.error('Failed to save video to database:', saveError);
+      throw new Error(`Failed to save video to database: ${saveError.message}`);
+    }
+
+    console.log('Video saved to database successfully');
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        videoUrl: storageUrl, // Return Supabase storage URL
+        originalVideoUrl: videoUrl, // Original Replicate URL
+        generationId: generationId,
+        prompt: prompt,
+        duration: duration,
+>>>>>>> 51e1604 (made changes to the supabase storage)
         creditsRemaining: profile.credits - 1
       }),
       {
