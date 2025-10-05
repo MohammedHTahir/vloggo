@@ -157,12 +157,18 @@ serve(async (req) => {
         console.error('Failed to update generation record:', updateGenerationError);
       }
 
-      // Update user stats
+      // Update user stats - fetch current values first
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('videos_generated, total_render_time')
+        .eq('id', generation.user_id)
+        .single();
+
       const { error: updateStatsError } = await supabase
         .from('profiles')
         .update({
-          videos_generated: supabase.raw('COALESCE(videos_generated, 0) + 1'),
-          total_render_time: supabase.raw(`COALESCE(total_render_time, 0) + ${generation.duration || 5}`)
+          videos_generated: (profileData?.videos_generated || 0) + 1,
+          total_render_time: (profileData?.total_render_time || 0) + (generation.duration || 10)
         })
         .eq('id', generation.user_id);
 
@@ -207,10 +213,16 @@ serve(async (req) => {
       }
 
       // Refund the credit since generation failed
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('credits')
+        .eq('id', generation.user_id)
+        .single();
+
       const { error: refundError } = await supabase
         .from('profiles')
         .update({
-          credits: supabase.raw('credits + 1')
+          credits: (profileData?.credits || 0) + 1
         })
         .eq('id', generation.user_id);
 

@@ -73,7 +73,7 @@ serve(async (req) => {
     console.log('User authenticated:', user.id);
 
     const body = await req.json();
-    const { imageUrl, prompt = "A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio", duration = 5 } = body;
+    const { imageUrl, prompt = "A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio", duration = 10 } = body;
     console.log('Request payload:', { imageUrl: imageUrl ? imageUrl.substring(0, 50) + '...' : null, prompt, duration });
 
     if (!imageUrl) {

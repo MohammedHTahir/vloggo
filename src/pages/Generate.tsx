@@ -152,7 +152,7 @@ const Generate = () => {
             setGeneratedVideo({
               url: data.videoUrl,
               prompt: prompt,
-              duration: 5
+              duration: 10
             });
             toast.success('Video with audio generated successfully!');
           }
@@ -237,7 +237,7 @@ const Generate = () => {
         body: {
           imageUrl,
           prompt: prompt.trim(),
-          duration: 5 // Default duration
+          duration: 10 // Default duration
         }
       });
 
@@ -547,7 +547,7 @@ const Generate = () => {
                                   setGeneratedVideo({
                                     url: (generation as any).storage_url,
                                     prompt: (generation as any).prompt,
-                                    duration: (generation as any).duration || 5
+                                    duration: (generation as any).duration || 10
                                   });
                                   toast.success('Video with audio generated successfully!');
                                 }
