@@ -147,18 +147,12 @@ const Generate = () => {
           setProgress(100);
           setGenerationStatus('Video with audio ready!');
           
-          // Fetch the final generation record to get the storage URL
-          const { data: generation } = await supabase
-            .from('video_generations' as any)
-            .select('*')
-            .eq('id', genId)
-            .single();
-
-          if ((generation as any)?.storage_url) {
+          // Use the videoUrl from the response
+          if (data.videoUrl) {
             setGeneratedVideo({
-              url: (generation as any).storage_url,
-              prompt: (generation as any).prompt,
-              duration: (generation as any).duration || 5
+              url: data.videoUrl,
+              prompt: prompt,
+              duration: 5
             });
             toast.success('Video with audio generated successfully!');
           }
@@ -170,9 +164,9 @@ const Generate = () => {
           // Show more user-friendly error messages
           let errorMessage = data.error || 'Video generation failed';
           if (errorMessage.includes('high server load')) {
-            errorMessage = 'Server is currently busy. Please try again with a simpler prompt or try again later.';
+            errorMessage = 'Server is currently busy. Please try again later.';
           } else if (errorMessage.includes('CUDA out of memory')) {
-            errorMessage = 'Server is currently overloaded. Please try again with a simpler prompt or try again later.';
+            errorMessage = 'Server is currently overloaded. Please try again later.';
           } else if (errorMessage.includes('authentication')) {
             errorMessage = 'Authentication error. Please contact support.';
           }
@@ -182,11 +176,8 @@ const Generate = () => {
           // Reset retry count for next attempt
           setRetryCount(0);
         } else if (data.status === 'processing') {
-          setProgress(30);
-          setGenerationStatus('Generating video...');
-        } else if (data.status === 'adding_audio') {
-          setProgress(70);
-          setGenerationStatus('Adding audio...');
+          setProgress(50);
+          setGenerationStatus('Generating video with audio... (wan-2.5)');
         }
       } catch (error) {
         console.error('Polling error:', error);
@@ -236,23 +227,11 @@ const Generate = () => {
     setRetryCount(0);
 
     try {
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 2000);
-
       // Upload image to Supabase storage first
       toast.info('Uploading image...');
       const imageUrl = await uploadImageToSupabase(selectedImage);
 
-      toast.info('Generating video with audio... This may take a few minutes.');
-      setProgress(20);
+      toast.info('Starting video generation with audio... This will take a few minutes.');
 
       const { data, error } = await supabase.functions.invoke('generate-video', {
         body: {
@@ -264,9 +243,6 @@ const Generate = () => {
 
       console.log('Edge function response:', { data, error });
 
-      clearInterval(progressInterval);
-      setProgress(100);
-
       if (error) {
         console.error('Edge function error:', error);
         throw new Error(error.message || 'Edge function failed');
@@ -277,22 +253,18 @@ const Generate = () => {
         throw new Error(data?.error || data?.details || 'Video generation failed');
       }
 
-      // Video is ready immediately with the new wan-2.5 model!
-      setGeneratedVideo({
-        url: data.videoUrl,
-        prompt: data.prompt,
-        duration: data.duration || 5
-      });
-
+      // Store generation ID and start polling
       setGenerationId(data.generationId);
-      toast.success('Video generated successfully with audio!');
+      toast.info('Video generation started! We\'ll notify you when it\'s ready.');
+      
+      // Start polling for status updates
+      startPolling(data.generationId);
       
     } catch (error: any) {
       console.error('Video generation error:', error);
       toast.error(error.message || 'Failed to generate video. Please try again.');
     } finally {
       setIsGenerating(false);
-      setProgress(0);
     }
   };
 

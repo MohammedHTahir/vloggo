@@ -73,7 +73,7 @@ serve(async (req) => {
     console.log('User authenticated:', user.id);
 
     const body = await req.json();
-    const { imageUrl, prompt = "A cinematic transformation of this image with dramatic movement and atmosphere", duration = 5 } = body;
+    const { imageUrl, prompt = "A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio", duration = 5 } = body;
     console.log('Request payload:', { imageUrl: imageUrl ? imageUrl.substring(0, 50) + '...' : null, prompt, duration });
 
     if (!imageUrl) {
@@ -113,7 +113,7 @@ serve(async (req) => {
     }
 
     // Generate video with Replicate using wan-video/wan-2.5-i2v model (with native audio!)
-    console.log('Sending video generation request to Replicate (wan-2.5-i2v with audio)...');
+    console.log('Creating async prediction for wan-2.5-i2v with audio...');
 
     const input = {
       image: imageUrl,
@@ -122,14 +122,22 @@ serve(async (req) => {
 
     console.log('Replicate input:', JSON.stringify(input, null, 2));
 
-    // Call Replicate API with error handling
-    let output;
+    // Build webhook URL
+    const webhookUrl = `${supabaseUrl}/functions/v1/video-generation-webhook`;
+    console.log('Webhook URL:', webhookUrl);
+
+    // Create async prediction with webhook
+    let prediction;
     try {
-      console.log('Making Replicate API call to wan-video/wan-2.5-i2v...');
-      output = await replicate.run("wan-video/wan-2.5-i2v", { input });
-      console.log('Replicate API call completed');
-      console.log('Replicate raw output type:', typeof output);
-      console.log('Replicate raw output:', output);
+      console.log('Creating Replicate prediction for wan-video/wan-2.5-i2v...');
+      
+      prediction = await replicate.predictions.create({
+        model: "wan-video/wan-2.5-i2v",
+        input: input,
+        webhook: webhookUrl,
+        webhook_events_filter: ["completed"]
+      });
+      console.log('Replicate prediction created:', prediction.id);
     } catch (apiError: any) {
       console.error('Replicate API call failed:', apiError);
       console.error('API Error details:', JSON.stringify(apiError, null, 2));
@@ -146,152 +154,67 @@ serve(async (req) => {
       }
     }
 
-    if (!output) {
-      console.error('Replicate API error: No output returned');
-      throw new Error('Video generation failed - no output returned');
-    }
-
-    // Extract video URL from output
-    // The new wan-2.5 model returns an object with a url() method
-    let videoUrl: string;
-    
-    if (typeof output === 'string') {
-      // Direct string URL
-      videoUrl = output;
-      console.log('Video URL received as string:', videoUrl);
-    } else if (output && typeof output === 'object') {
-      // Object with url() method or url property
-      if (typeof (output as any).url === 'function') {
-        videoUrl = (output as any).url();
-        console.log('Video URL extracted via url() method:', videoUrl);
-      } else if (typeof (output as any).url === 'string') {
-        videoUrl = (output as any).url;
-        console.log('Video URL extracted from url property:', videoUrl);
-      } else if (Array.isArray(output) && output.length > 0) {
-        // Sometimes Replicate returns an array
-        videoUrl = output[0];
-        console.log('Video URL extracted from array:', videoUrl);
-      } else {
-        console.error('Replicate API error: Unexpected object format:', output);
-        throw new Error('Video generation failed - unexpected output format');
-      }
-    } else {
-      console.error('Replicate API error: Expected string or object but got:', typeof output, output);
-      throw new Error('Video generation failed - unexpected output format');
-    }
-
-    // Validate that we got a proper URL
-    if (!videoUrl || !videoUrl.startsWith('http')) {
-      console.error('Replicate API error: Invalid video URL:', videoUrl);
-      throw new Error('Video generation failed - invalid video URL returned');
-    }
-
-    console.log('Video generation completed successfully with audio:', videoUrl);
-
-    // Download video from Replicate and store in our Supabase storage
-    console.log('Downloading video from Replicate...');
-    let storageUrl: string | null = null;
-    
-    try {
-      // Download the video file
-      console.log('Fetching video from:', videoUrl);
-      const videoResponse = await fetch(videoUrl);
-      if (!videoResponse.ok) {
-        throw new Error(`Failed to download video: ${videoResponse.status} ${videoResponse.statusText}`);
-      }
-      
-      const videoBlob = await videoResponse.blob();
-      console.log('Video downloaded, size:', videoBlob.size, 'bytes', 'type:', videoBlob.type);
-      
-      // Generate unique filename
-      const videoFileName = `video_${crypto.randomUUID()}.mp4`;
-      const videoPath = `uploads/${user.id}/${videoFileName}`;
-      
-      console.log('Uploading to Supabase storage, path:', videoPath);
-      
-      // Upload to Supabase storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('videos')
-        .upload(videoPath, videoBlob, {
-          contentType: 'video/mp4',
-          upsert: false,
-          cacheControl: '3600'
-        });
-      
-      if (uploadError) {
-        console.error('Failed to upload video to storage:', uploadError);
-        throw new Error(`Storage upload failed: ${uploadError.message}`);
-      }
-      
-      console.log('Upload successful:', uploadData);
-      
-      // Get public URL for the stored video
-      const { data: { publicUrl } } = supabase.storage
-        .from('videos')
-        .getPublicUrl(videoPath);
-      
-      storageUrl = publicUrl;
-      console.log('Video successfully stored in Supabase storage:', storageUrl);
-      
-    } catch (storageError: any) {
-      console.error('Failed to store video in Supabase storage:', storageError);
-      console.error('Storage error details:', storageError.message);
-      // Don't fall back - we want to know if storage fails
-      throw new Error(`Failed to store video in Supabase storage: ${storageError.message}`);
-    }
-
-    // Set thumbnail URL to the original image
-    const thumbnailUrl = imageUrl;
-
-    // Deduct credits and update stats
-    const { error: updateError } = await supabase
+    // Deduct credit from user's profile
+    console.log('Deducting credit from user profile...');
+    const { error: deductError } = await supabase
       .from('profiles')
       .update({
-        credits: profile.credits - 1,
-        videos_generated: (profile.videos_generated || 0) + 1,
-        total_render_time: (profile.total_render_time || 0) + duration
+        credits: profile.credits - 1
       })
       .eq('id', user.id);
 
-    if (updateError) {
-      console.error('Failed to update user profile:', updateError);
-      // Don't fail the request if profile update fails
+    if (deductError) {
+      console.error('Failed to deduct credit:', deductError);
+      return new Response(
+        JSON.stringify({ error: 'Failed to deduct credit. Please try again.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    console.log(`Video generated and stored successfully for user ${user.id}: ${storageUrl}`);
+    console.log('Credit deducted successfully. Remaining credits:', profile.credits - 1);
 
-    // Save video to database with storage URL
+    // Save the prediction to database for tracking
     const generationId = crypto.randomUUID();
-    const { error: saveError } = await supabase
-      .from('videos')
+    const { error: savePredictionError } = await supabase
+      .from('video_generations')
       .insert({
+        id: generationId,
         user_id: user.id,
-        video_url: videoUrl, // Original Replicate URL for reference
-        storage_url: storageUrl, // Our Supabase storage URL (this is what we'll use)
-        thumbnail_url: thumbnailUrl,
+        prediction_id: prediction.id,
+        status: 'processing',
+        image_url: imageUrl,
         prompt: prompt,
         duration: duration,
-        generation_id: generationId,
-        leonardo_image_id: null
+        created_at: new Date().toISOString()
       });
 
-    if (saveError) {
-      console.error('Failed to save video to database:', saveError);
-      throw new Error(`Failed to save video to database: ${saveError.message}`);
+    if (savePredictionError) {
+      console.error('Failed to save prediction to database:', savePredictionError);
+      // Refund the credit since we couldn't save the generation
+      await supabase
+        .from('profiles')
+        .update({
+          credits: profile.credits
+        })
+        .eq('id', user.id);
+      
+      return new Response(
+        JSON.stringify({ error: 'Failed to save generation record. Credit refunded.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    console.log('Video saved to database successfully');
+    console.log('Prediction saved to database with ID:', generationId);
 
+    // Return immediately with generation ID for polling
     return new Response(
       JSON.stringify({
         success: true,
-        videoUrl: storageUrl, // Return Supabase storage URL
-        originalVideoUrl: videoUrl, // Original Replicate URL
         generationId: generationId,
-        prompt: prompt,
-        duration: duration,
-        creditsRemaining: profile.credits - 1,
-        hasAudio: true // Indicate that video includes native audio
+        predictionId: prediction.id,
+        status: 'processing',
+        message: 'Video generation with audio started. Webhook will process completion.',
+        creditsRemaining: profile.credits - 1
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
