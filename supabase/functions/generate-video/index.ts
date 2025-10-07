@@ -124,8 +124,8 @@ serve(async (req) => {
       );
     }
 
-    // Generate video with Replicate using wan-video/wan-2.5-i2v model (with native audio!)
-    console.log('Creating async prediction for wan-2.5-i2v with audio...');
+    // Generate video with Replicate using wan-video/wan-2.2-i2v-fast model
+    console.log('Creating async prediction for wan-2.2-i2v-fast...');
 
     const input = {
       image: imageUrl,

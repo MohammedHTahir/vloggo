@@ -178,7 +178,7 @@ const Generate = () => {
           setRetryCount(0);
         } else if (data.status === 'processing') {
           setProgress(50);
-          setGenerationStatus('Generating video with audio... (wan-2.5)');
+          setGenerationStatus('Generating video...');
         }
       } catch (error) {
         console.error('Polling error:', error);
