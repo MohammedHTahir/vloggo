@@ -28,6 +28,7 @@ const Generate = () => {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [prompt, setPrompt] = useState("A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio");
+  const [duration, setDuration] = useState<5 | 10>(5);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -152,7 +153,7 @@ const Generate = () => {
             setGeneratedVideo({
               url: data.videoUrl,
               prompt: prompt,
-              duration: 10
+              duration: duration
             });
             toast.success('Video with audio generated successfully!');
           }
@@ -237,7 +238,7 @@ const Generate = () => {
         body: {
           imageUrl,
           prompt: prompt.trim(),
-          duration: 10 // Default duration
+          duration: duration
         }
       });
 
@@ -479,9 +480,36 @@ const Generate = () => {
                       />
                     </div>
 
+                    {/* Duration Selection */}
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Video Duration
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Button
+                          type="button"
+                          variant={duration === 5 ? "default" : "outline"}
+                          onClick={() => setDuration(5)}
+                          className="h-12 flex flex-col items-center justify-center space-y-1"
+                        >
+                          <span className="font-semibold">5 seconds</span>
+                          <span className="text-xs opacity-70">1 credit</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={duration === 10 ? "default" : "outline"}
+                          onClick={() => setDuration(10)}
+                          className="h-12 flex flex-col items-center justify-center space-y-1"
+                        >
+                          <span className="font-semibold">10 seconds</span>
+                          <span className="text-xs opacity-70">2 credits</span>
+                        </Button>
+                      </div>
+                    </div>
+
                     <Button
                       onClick={generateVideo}
-                      disabled={!selectedImage || isGenerating || isPolling || (profile?.credits || 0) < 1}
+                      disabled={!selectedImage || isGenerating || isPolling || (profile?.credits || 0) < (duration === 5 ? 1 : 2)}
                       className="w-full"
                       variant="glass-primary"
                       size="lg"
@@ -499,7 +527,7 @@ const Generate = () => {
                       ) : (
                         <>
                           <Play className="w-4 h-4 mr-2" />
-                          Generate Video (1 credit)
+                          Generate {duration}s Video ({(duration === 5 ? 1 : 2)} credit{duration === 10 ? 's' : ''})
                         </>
                       )}
                     </Button>
@@ -547,7 +575,7 @@ const Generate = () => {
                                   setGeneratedVideo({
                                     url: (generation as any).storage_url,
                                     prompt: (generation as any).prompt,
-                                    duration: (generation as any).duration || 10
+                                    duration: (generation as any).duration || duration
                                   });
                                   toast.success('Video with audio generated successfully!');
                                 }

@@ -73,7 +73,7 @@ serve(async (req) => {
     console.log('User authenticated:', user.id);
 
     const body = await req.json();
-    const { imageUrl, prompt = "A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio", duration = 10 } = body;
+    const { imageUrl, prompt = "A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio", duration = 5 } = body;
     console.log('Request payload:', { imageUrl: imageUrl ? imageUrl.substring(0, 50) + '...' : null, prompt, duration });
 
     if (!imageUrl) {
@@ -83,6 +83,18 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Validate duration and calculate credit cost
+    if (duration !== 5 && duration !== 10) {
+      console.error('Invalid duration:', duration);
+      return new Response(
+        JSON.stringify({ error: 'Duration must be either 5 or 10 seconds' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const creditCost = duration === 5 ? 1 : 2;
+    console.log(`Duration: ${duration}s, Credit cost: ${creditCost}`);
 
     // Validate image URL format
     try {
@@ -104,10 +116,10 @@ serve(async (req) => {
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profile || profile.credits < 1) {
+    if (profileError || !profile || profile.credits < creditCost) {
       console.error('Insufficient credits or profile error:', profileError);
       return new Response(
-        JSON.stringify({ error: 'Insufficient credits. Please purchase more credits.' }),
+        JSON.stringify({ error: `Insufficient credits. You need ${creditCost} credit${creditCost > 1 ? 's' : ''} for a ${duration}-second video. Please purchase more credits.` }),
         { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -158,24 +170,24 @@ serve(async (req) => {
       }
     }
 
-    // Deduct credit from user's profile
-    console.log('Deducting credit from user profile...');
+    // Deduct credits from user's profile
+    console.log(`Deducting ${creditCost} credit${creditCost > 1 ? 's' : ''} from user profile...`);
     const { error: deductError } = await supabase
       .from('profiles')
       .update({
-        credits: profile.credits - 1
+        credits: profile.credits - creditCost
       })
       .eq('id', user.id);
 
     if (deductError) {
-      console.error('Failed to deduct credit:', deductError);
+      console.error('Failed to deduct credits:', deductError);
       return new Response(
-        JSON.stringify({ error: 'Failed to deduct credit. Please try again.' }),
+        JSON.stringify({ error: 'Failed to deduct credits. Please try again.' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Credit deducted successfully. Remaining credits:', profile.credits - 1);
+    console.log(`Credits deducted successfully. Remaining credits: ${profile.credits - creditCost}`);
 
     // Save the prediction to database for tracking
     const generationId = crypto.randomUUID();
@@ -194,7 +206,7 @@ serve(async (req) => {
 
     if (savePredictionError) {
       console.error('Failed to save prediction to database:', savePredictionError);
-      // Refund the credit since we couldn't save the generation
+      // Refund the credits since we couldn't save the generation
       await supabase
         .from('profiles')
         .update({
@@ -203,7 +215,7 @@ serve(async (req) => {
         .eq('id', user.id);
       
       return new Response(
-        JSON.stringify({ error: 'Failed to save generation record. Credit refunded.' }),
+        JSON.stringify({ error: `Failed to save generation record. ${creditCost} credit${creditCost > 1 ? 's' : ''} refunded.` }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -217,8 +229,9 @@ serve(async (req) => {
         generationId: generationId,
         predictionId: prediction.id,
         status: 'processing',
-        message: 'Video generation with audio started. Webhook will process completion.',
-        creditsRemaining: profile.credits - 1
+        message: `${duration}-second video generation with audio started. Webhook will process completion.`,
+        creditsUsed: creditCost,
+        creditsRemaining: profile.credits - creditCost
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

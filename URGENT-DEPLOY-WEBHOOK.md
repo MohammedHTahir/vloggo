@@ -1,3 +1,20 @@
+# 🚨 URGENT: Deploy Updated Webhook (2 Minutes)
+
+## Why This Is Needed
+The old `video-generation-webhook` code (v16) still has audio stitching logic. We need to deploy the NEW code that ONLY uses wan-2.5-i2v with native audio.
+
+## 🚀 Deploy Steps (MUST DO VIA DASHBOARD)
+
+### 1. Open the Function
+https://supabase.com/dashboard/project/fsrabyevssdxaglriclw/functions/video-generation-webhook
+
+### 2. Click "Deploy a new version"
+
+### 3. Copy-Paste This Entire File
+**File:** `/Users/mohammedtahir/Dev/web-dev/nextjs/vloggo/supabase/functions/video-generation-webhook/index.ts`
+
+**Or copy from below:**
+```typescript
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1'
 
@@ -212,28 +229,25 @@ serve(async (req) => {
         console.error('Failed to update generation record with failure:', updateGenerationError);
       }
 
-      // Refund the credits since generation failed
+      // Refund the credit since generation failed
       const { data: profileData } = await supabase
         .from('profiles')
         .select('credits')
         .eq('id', generation.user_id)
         .single();
 
-      // Calculate credit cost based on duration
-      const creditCost = generation.duration === 5 ? 1 : 2;
-
       const { error: refundError } = await supabase
         .from('profiles')
         .update({
-          credits: (profileData?.credits || 0) + creditCost
+          credits: (profileData?.credits || 0) + 1
         })
         .eq('id', generation.user_id);
 
       if (refundError) {
-        console.error('Failed to refund credits:', refundError);
+        console.error('Failed to refund credit:', refundError);
       }
 
-      console.log(`${creditCost} credit${creditCost > 1 ? 's' : ''} refunded for failed generation`);
+      console.log('Credit refunded for failed generation');
 
     } else {
       console.log('Video generation status:', status);
@@ -261,3 +275,25 @@ serve(async (req) => {
     );
   }
 });
+```
+
+### 4. ⚠️ CRITICAL: Uncheck "Enforce JWT verification"
+**YOU MUST DO THIS** or Replicate webhooks will be blocked!
+
+### 5. Click "Deploy"
+
+---
+
+## ✨ What This Fixes
+- ✅ NO more tencent/hunyuanvideo-foley
+- ✅ Only wan-2.5-i2v with native audio
+- ✅ 10-second videos
+- ✅ Stores in Supabase storage
+- ✅ Updates UI automatically
+
+## 🧪 Test After Deploy
+1. Generate a new video
+2. Check Replicate - should ONLY show wan-2.5-i2v
+3. Video should appear in dashboard automatically
+4. Video should be 10 seconds with audio
+
