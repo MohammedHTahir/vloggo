@@ -282,6 +282,9 @@ serve(async (req) => {
               .eq('segment_index', segmentsCompleted);
 
             // Trigger next segment generation
+            // Determine segmentType from segment duration (all segments in a generation use the same type)
+            const segmentType = nextSegment.duration === 6 ? 6 : 10;
+            
             const generateSegmentResponse = await fetch(`${supabaseUrl}/functions/v1/generate-video`, {
               method: 'POST',
               headers: {
@@ -292,6 +295,7 @@ serve(async (req) => {
                 imageUrl: nextImageUrl,
                 prompt: nextPrompt,
                 duration: nextSegment.duration,
+                segmentType: segmentType,
                 parentGenerationId: parentGeneration.id,
                 segmentIndex: segmentsCompleted,
                 isSegment: true

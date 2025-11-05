@@ -67,8 +67,8 @@ serve(async (req) => {
     console.log('User authenticated:', user.id);
 
     const body = await req.json();
-    const { imageUrl, prompt = "A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio", duration = 6, parentGenerationId, segmentIndex, isSegment } = body;
-    console.log('Request payload:', { imageUrl: imageUrl ? imageUrl.substring(0, 50) + '...' : null, prompt, duration, parentGenerationId, segmentIndex, isSegment });
+    const { imageUrl, prompt = "A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio", duration = 6, parentGenerationId, segmentIndex, isSegment, segmentType = 6 } = body;
+    console.log('Request payload:', { imageUrl: imageUrl ? imageUrl.substring(0, 50) + '...' : null, prompt, duration, parentGenerationId, segmentIndex, isSegment, segmentType });
 
     if (!imageUrl) {
       console.error('No image URL provided');
@@ -87,34 +87,24 @@ serve(async (req) => {
       );
     }
 
-    // Calculate segments and credit cost
-    function calculateSegments(duration: number): { segments: number[], creditCost: number } {
-      const fullSegments = Math.floor(duration / 10);
-      const remainder = duration % 10;
+    // Calculate segments and credit cost based on segment type
+    function calculateSegments(duration: number, segType: 6 | 10): { segments: number[], creditCost: number } {
       const segments: number[] = [];
+      const segmentCount = Math.ceil(duration / segType);
       
-      // Add full 10s segments
-      for (let i = 0; i < fullSegments; i++) {
-        segments.push(10);
-      }
-      
-      // Add remainder as 6s or 10s segment
-      if (remainder > 0) {
-        // If remainder is exactly 6, use 6s segment; if 7-9, use 10s segment
-        segments.push(remainder > 6 ? 10 : 6);
-      }
-      
-      // If no segments (shouldn't happen), default to 6s
-      if (segments.length === 0) {
-        segments.push(6);
+      // Add segments (all segments use the same duration)
+      for (let i = 0; i < segmentCount; i++) {
+        segments.push(segType);
       }
       
       const creditCost = segments.reduce((sum, seg) => sum + (seg === 6 ? 1 : 2), 0);
       return { segments, creditCost };
     }
 
-    const isMultiSegment = duration > 10 && !isSegment;
-    const { segments, creditCost } = isMultiSegment ? calculateSegments(duration) : { segments: [duration], creditCost: duration === 6 ? 1 : 2 };
+    // Use segmentType from request, or default based on duration if not provided (for backward compatibility)
+    const finalSegmentType = segmentType || (duration <= 6 ? 6 : 10);
+    const isMultiSegment = duration > finalSegmentType && !isSegment;
+    const { segments, creditCost } = isMultiSegment ? calculateSegments(duration, finalSegmentType) : { segments: [duration], creditCost: duration === 6 ? 1 : 2 };
     
     console.log(`Duration: ${duration}s, Is multi-segment: ${isMultiSegment}, Segments: ${segments.join(',')}s, Credit cost: ${creditCost}`);
 

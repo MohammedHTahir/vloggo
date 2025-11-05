@@ -29,6 +29,7 @@ const Generate = () => {
   const [imagePreview, setImagePreview] = useState<string>("");
   const [prompt, setPrompt] = useState("A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio");
   const [duration, setDuration] = useState<number>(6);
+  const [segmentType, setSegmentType] = useState<6 | 10>(6); // Segment type: 6s or 10s
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -44,33 +45,30 @@ const Generate = () => {
   const [segmentProgress, setSegmentProgress] = useState<{ completed: number; total: number; current?: number } | null>(null);
   const [isStitching, setIsStitching] = useState(false);
 
-  // Calculate segments and credit cost
-  const calculateSegments = (duration: number): { segments: number[], creditCost: number } => {
-    const fullSegments = Math.floor(duration / 10);
-    const remainder = duration % 10;
+  // Calculate segments and credit cost based on selected segment type
+  const calculateSegments = (duration: number, segType: 6 | 10): { segments: number[], creditCost: number } => {
     const segments: number[] = [];
+    const segmentCount = Math.ceil(duration / segType);
     
-    // Add full 10s segments
-    for (let i = 0; i < fullSegments; i++) {
-      segments.push(10);
-    }
-    
-    // Add remainder as 6s or 10s segment
-    if (remainder > 0) {
-      // If remainder is exactly 6, use 6s segment; if 7-9, use 10s segment
-      segments.push(remainder > 6 ? 10 : 6);
-    }
-    
-    // If no segments (shouldn't happen), default to 6s
-    if (segments.length === 0) {
-      segments.push(6);
+    // Add segments (all segments use the same duration)
+    for (let i = 0; i < segmentCount; i++) {
+      segments.push(segType);
     }
     
     const creditCost = segments.reduce((sum, seg) => sum + (seg === 6 ? 1 : 2), 0);
     return { segments, creditCost };
   };
 
-  const { segments, creditCost } = calculateSegments(duration);
+  const { segments, creditCost } = calculateSegments(duration, segmentType);
+  
+  // Update duration when segment type changes to nearest valid value
+  const handleSegmentTypeChange = (newType: 6 | 10) => {
+    setSegmentType(newType);
+    // Round duration to nearest multiple of new segment type
+    const roundedDuration = Math.round(duration / newType) * newType;
+    const clampedDuration = Math.max(newType, Math.min(240, roundedDuration));
+    setDuration(clampedDuration);
+  };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -295,7 +293,8 @@ const Generate = () => {
         body: {
           imageUrl,
           prompt: prompt.trim(),
-          duration: duration
+          duration: duration,
+          segmentType: segmentType
         }
       });
 
@@ -542,18 +541,41 @@ const Generate = () => {
                       <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                         Video Duration
                       </label>
+                      
+                      {/* Segment Type Toggle */}
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant={segmentType === 6 ? "default" : "outline"}
+                          onClick={() => handleSegmentTypeChange(6)}
+                          className="flex-1"
+                          size="sm"
+                        >
+                          6s Segments
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={segmentType === 10 ? "default" : "outline"}
+                          onClick={() => handleSegmentTypeChange(10)}
+                          className="flex-1"
+                          size="sm"
+                        >
+                          10s Segments
+                        </Button>
+                      </div>
+                      
                       <div className="space-y-2">
                         <input
                           type="range"
-                          min="6"
+                          min={segmentType}
                           max="240"
-                          step="6"
+                          step={segmentType}
                           value={duration}
                           onChange={(e) => setDuration(parseInt(e.target.value))}
                           className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
                         />
                         <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>6s</span>
+                          <span>{segmentType}s</span>
                           <span className="font-semibold">{duration}s</span>
                           <span>240s (4min)</span>
                         </div>
@@ -562,7 +584,7 @@ const Generate = () => {
                             {segments.length} segment{segments.length > 1 ? 's' : ''} ({segments.map(s => `${s}s`).join(' + ')})
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            Total cost: {creditCost} credit{creditCost > 1 ? 's' : ''} ({segments.map((seg, i) => `${seg === 6 ? '1' : '2'} credit${seg === 10 ? 's' : ''}`).join(' + ')})
+                            Total cost: {creditCost} credit{creditCost > 1 ? 's' : ''} ({segments.map((seg) => `${seg === 6 ? '1' : '2'} credit${seg === 10 ? 's' : ''}`).join(' + ')})
                           </div>
                         </div>
                       </div>
