@@ -7,12 +7,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-interface VideoGenerationRequest {
-  imageUrl: string;
-  prompt?: string;
-  duration?: number;
-}
-
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -73,8 +67,8 @@ serve(async (req) => {
     console.log('User authenticated:', user.id);
 
     const body = await req.json();
-    const { imageUrl, prompt = "A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio", duration = 5 } = body;
-    console.log('Request payload:', { imageUrl: imageUrl ? imageUrl.substring(0, 50) + '...' : null, prompt, duration });
+    const { imageUrl, prompt = "A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio", duration = 6, parentGenerationId, segmentIndex, isSegment } = body;
+    console.log('Request payload:', { imageUrl: imageUrl ? imageUrl.substring(0, 50) + '...' : null, prompt, duration, parentGenerationId, segmentIndex, isSegment });
 
     if (!imageUrl) {
       console.error('No image URL provided');
@@ -84,17 +78,44 @@ serve(async (req) => {
       );
     }
 
-    // Validate duration and calculate credit cost
-    if (duration !== 5 && duration !== 10) {
+    // Validate duration (6 to 240 seconds)
+    if (duration < 6 || duration > 240) {
       console.error('Invalid duration:', duration);
       return new Response(
-        JSON.stringify({ error: 'Duration must be either 5 or 10 seconds' }),
+        JSON.stringify({ error: 'Duration must be between 6 and 240 seconds' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const creditCost = duration === 5 ? 1 : 2;
-    console.log(`Duration: ${duration}s, Credit cost: ${creditCost}`);
+    // Calculate segments and credit cost
+    function calculateSegments(duration: number): { segments: number[], creditCost: number } {
+      const fullSegments = Math.floor(duration / 10);
+      const remainder = duration % 10;
+      const segments: number[] = [];
+      
+      // Add full 10s segments
+      for (let i = 0; i < fullSegments; i++) {
+        segments.push(10);
+      }
+      
+      // Add remainder as 6s or 10s segment
+      if (remainder > 0) {
+        segments.push(remainder >= 6 ? 10 : 6);
+      }
+      
+      // If no segments (shouldn't happen), default to 6s
+      if (segments.length === 0) {
+        segments.push(6);
+      }
+      
+      const creditCost = segments.reduce((sum, seg) => sum + (seg === 6 ? 1 : 2), 0);
+      return { segments, creditCost };
+    }
+
+    const isMultiSegment = duration > 10 && !isSegment;
+    const { segments, creditCost } = isMultiSegment ? calculateSegments(duration) : { segments: [duration], creditCost: duration === 6 ? 1 : 2 };
+    
+    console.log(`Duration: ${duration}s, Is multi-segment: ${isMultiSegment}, Segments: ${segments.join(',')}s, Credit cost: ${creditCost}`);
 
     // Validate image URL format
     try {
@@ -119,21 +140,23 @@ serve(async (req) => {
     if (profileError || !profile || profile.credits < creditCost) {
       console.error('Insufficient credits or profile error:', profileError);
       return new Response(
-        JSON.stringify({ error: `Insufficient credits. You need ${creditCost} credit${creditCost > 1 ? 's' : ''} for a ${duration}-second video. Please purchase more credits.` }),
+        JSON.stringify({ error: `Insufficient credits. You need ${creditCost} credit${creditCost > 1 ? 's' : ''} for a ${duration}-second video (${segments.length} segment${segments.length > 1 ? 's' : ''}). Please purchase more credits.` }),
         { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Generate video with Replicate using wan-video/wan-2.2-i2v-fast model
-    console.log('Creating async prediction for wan-2.2-i2v-fast...');
+    // Determine segment duration (for multi-segment, use first segment; for single segment, use duration)
+    const segmentDuration = isSegment ? duration : segments[0];
+
+    // Generate video with Replicate using lightricks/ltx-2-fast model
+    console.log('Creating async prediction for lightricks/ltx-2-fast...');
 
     const input = {
       image: imageUrl,
       prompt: prompt,
-      duration: duration,
-      resolution: "720p",
-      negative_prompt: "",
-      enable_prompt_expansion: true
+      duration: segmentDuration,
+      resolution: "1080p",
+      generate_audio: true
     };
 
     console.log('Replicate input:', JSON.stringify(input, null, 2));
@@ -145,10 +168,10 @@ serve(async (req) => {
     // Create async prediction with webhook
     let prediction;
     try {
-      console.log('Creating Replicate prediction for wan-video/wan-2.5-i2v...');
+      console.log('Creating video...');
       
       prediction = await replicate.predictions.create({
-        model: "wan-video/wan-2.5-i2v",
+        model: "lightricks/ltx-2-fast",
         input: input,
         webhook: webhookUrl,
         webhook_events_filter: ["completed"]
@@ -162,7 +185,7 @@ serve(async (req) => {
       if (apiError.message?.includes('authentication')) {
         throw new Error('Replicate API authentication failed. Please check your API token.');
       } else if (apiError.message?.includes('model')) {
-        throw new Error('Replicate model error. The wan-video/wan-2.5-i2v model may not be available.');
+        throw new Error('Replicate model error. The lightricks/ltx-2-fast model may not be available.');
       } else if (apiError.message?.includes('input')) {
         throw new Error('Replicate input error. Please check the image URL and prompt format.');
       } else {
@@ -170,27 +193,133 @@ serve(async (req) => {
       }
     }
 
-    // Deduct credits from user's profile
-    console.log(`Deducting ${creditCost} credit${creditCost > 1 ? 's' : ''} from user profile...`);
-    const { error: deductError } = await supabase
-      .from('profiles')
-      .update({
-        credits: profile.credits - creditCost
-      })
-      .eq('id', user.id);
+    // Handle multi-segment generation
+    if (isMultiSegment) {
+      console.log('Creating multi-segment generation...');
+      
+      // Create parent generation record
+      const parentGenerationId = crypto.randomUUID();
+      const { error: saveParentError } = await supabase
+        .from('video_generations')
+        .insert({
+          id: parentGenerationId,
+          user_id: user.id,
+          prediction_id: prediction.id,
+          status: 'processing',
+          image_url: imageUrl,
+          prompt: prompt,
+          duration: duration,
+          is_segment: false,
+          total_segments: segments.length,
+          segments_completed: 0,
+          created_at: new Date().toISOString()
+        });
 
-    if (deductError) {
-      console.error('Failed to deduct credits:', deductError);
+      if (saveParentError) {
+        console.error('Failed to save parent generation:', saveParentError);
+        return new Response(
+          JSON.stringify({ error: `Failed to save generation record.` }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Deduct all credits upfront
+      console.log(`Deducting ${creditCost} credit${creditCost > 1 ? 's' : ''} from user profile...`);
+      const { error: deductError } = await supabase
+        .from('profiles')
+        .update({
+          credits: profile.credits - creditCost
+        })
+        .eq('id', user.id);
+
+      if (deductError) {
+        console.error('Failed to deduct credits:', deductError);
+        // Delete parent generation
+        await supabase.from('video_generations').delete().eq('id', parentGenerationId);
+        return new Response(
+          JSON.stringify({ error: 'Failed to deduct credits. Please try again.' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Create segment records
+      let firstSegmentGenerationId: string | null = null;
+      for (let i = 0; i < segments.length; i++) {
+        const segmentGenerationId = crypto.randomUUID();
+        
+        // Create segment generation record (first segment uses actual prediction, others will be created later)
+        if (i === 0) {
+          firstSegmentGenerationId = segmentGenerationId;
+          const { error: saveSegmentError } = await supabase
+            .from('video_generations')
+            .insert({
+              id: segmentGenerationId,
+              user_id: user.id,
+              prediction_id: prediction.id,
+              status: 'processing',
+              image_url: imageUrl,
+              prompt: prompt,
+              duration: segments[i],
+              is_segment: true,
+              parent_generation_id: parentGenerationId,
+              segment_index: i,
+              total_segments: segments.length,
+              created_at: new Date().toISOString()
+            });
+
+          if (saveSegmentError) {
+            console.error('Failed to save segment generation:', saveSegmentError);
+            // Refund credits and cleanup
+            await supabase.from('profiles').update({ credits: profile.credits }).eq('id', user.id);
+            await supabase.from('video_generations').delete().eq('id', parentGenerationId);
+            return new Response(
+              JSON.stringify({ error: 'Failed to save segment record.' }),
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          // Create segment record in video_segments table
+          await supabase.from('video_segments').insert({
+            parent_generation_id: parentGenerationId,
+            segment_index: i,
+            prompt: prompt,
+            duration: segments[i]
+          });
+        } else {
+          // Create placeholder segment records for remaining segments
+          await supabase.from('video_segments').insert({
+            parent_generation_id: parentGenerationId,
+            segment_index: i,
+            prompt: '', // Will be generated later
+            duration: segments[i]
+          });
+        }
+      }
+
+      console.log('Multi-segment generation created, parent ID:', parentGenerationId);
+
       return new Response(
-        JSON.stringify({ error: 'Failed to deduct credits. Please try again.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: true,
+          generationId: parentGenerationId,
+          segmentGenerationId: firstSegmentGenerationId,
+          predictionId: prediction.id,
+          status: 'processing',
+          message: `${duration}-second video generation started (${segments.length} segment${segments.length > 1 ? 's' : ''}). Webhook will process completion.`,
+          creditsUsed: creditCost,
+          creditsRemaining: profile.credits - creditCost,
+          totalSegments: segments.length,
+          isMultiSegment: true
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200
+        }
       );
     }
 
-    console.log(`Credits deducted successfully. Remaining credits: ${profile.credits - creditCost}`);
-
-    // Save the prediction to database for tracking
-    const generationId = crypto.randomUUID();
+    // Handle single segment or subsequent segment generation
+    const generationId = parentGenerationId || crypto.randomUUID();
     const { error: savePredictionError } = await supabase
       .from('video_generations')
       .insert({
@@ -200,24 +329,57 @@ serve(async (req) => {
         status: 'processing',
         image_url: imageUrl,
         prompt: prompt,
-        duration: duration,
+        duration: segmentDuration,
+        is_segment: isSegment || false,
+        parent_generation_id: parentGenerationId || null,
+        segment_index: segmentIndex !== undefined ? segmentIndex : null,
+        total_segments: isSegment && parentGenerationId ? null : 1,
         created_at: new Date().toISOString()
       });
 
     if (savePredictionError) {
       console.error('Failed to save prediction to database:', savePredictionError);
-      // Refund the credits since we couldn't save the generation
-      await supabase
+      // Only refund if this is not a segment (segments already deducted credits)
+      if (!isSegment) {
+        await supabase
+          .from('profiles')
+          .update({
+            credits: profile.credits
+          })
+          .eq('id', user.id);
+        
+        return new Response(
+          JSON.stringify({ error: `Failed to save generation record. ${creditCost} credit${creditCost > 1 ? 's' : ''} refunded.` }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } else {
+        return new Response(
+          JSON.stringify({ error: 'Failed to save segment record.' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // Deduct credits only for single-segment (multi-segment already deducted)
+    if (!isSegment) {
+      console.log(`Deducting ${creditCost} credit${creditCost > 1 ? 's' : ''} from user profile...`);
+      const { error: deductError } = await supabase
         .from('profiles')
         .update({
-          credits: profile.credits
+          credits: profile.credits - creditCost
         })
         .eq('id', user.id);
-      
-      return new Response(
-        JSON.stringify({ error: `Failed to save generation record. ${creditCost} credit${creditCost > 1 ? 's' : ''} refunded.` }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+
+      if (deductError) {
+        console.error('Failed to deduct credits:', deductError);
+        await supabase.from('video_generations').delete().eq('id', generationId);
+        return new Response(
+          JSON.stringify({ error: 'Failed to deduct credits. Please try again.' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log(`Credits deducted successfully. Remaining credits: ${profile.credits - creditCost}`);
     }
 
     console.log('Prediction saved to database with ID:', generationId);
@@ -229,9 +391,10 @@ serve(async (req) => {
         generationId: generationId,
         predictionId: prediction.id,
         status: 'processing',
-        message: `${duration}-second video generation with audio started. Webhook will process completion.`,
-        creditsUsed: creditCost,
-        creditsRemaining: profile.credits - creditCost
+        message: `${segmentDuration}-second video generation with audio started. Webhook will process completion.`,
+        creditsUsed: isSegment ? 0 : creditCost,
+        creditsRemaining: isSegment ? profile.credits : profile.credits - creditCost,
+        isSegment: isSegment || false
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

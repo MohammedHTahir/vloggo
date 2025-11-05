@@ -28,7 +28,7 @@ const Generate = () => {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [prompt, setPrompt] = useState("A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio");
-  const [duration, setDuration] = useState<6 | 10>(6);
+  const [duration, setDuration] = useState<number>(6);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -41,6 +41,35 @@ const Generate = () => {
   const [isPolling, setIsPolling] = useState(false);
   const [generationStatus, setGenerationStatus] = useState<string>('');
   const [retryCount, setRetryCount] = useState(0);
+  const [segmentProgress, setSegmentProgress] = useState<{ completed: number; total: number; current?: number } | null>(null);
+  const [isStitching, setIsStitching] = useState(false);
+
+  // Calculate segments and credit cost
+  const calculateSegments = (duration: number): { segments: number[], creditCost: number } => {
+    const fullSegments = Math.floor(duration / 10);
+    const remainder = duration % 10;
+    const segments: number[] = [];
+    
+    // Add full 10s segments
+    for (let i = 0; i < fullSegments; i++) {
+      segments.push(10);
+    }
+    
+    // Add remainder as 6s or 10s segment
+    if (remainder > 0) {
+      segments.push(remainder >= 6 ? 10 : 6);
+    }
+    
+    // If no segments (shouldn't happen), default to 6s
+    if (segments.length === 0) {
+      segments.push(6);
+    }
+    
+    const creditCost = segments.reduce((sum, seg) => sum + (seg === 6 ? 1 : 2), 0);
+    return { segments, creditCost };
+  };
+
+  const { segments, creditCost } = calculateSegments(duration);
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -142,11 +171,30 @@ const Generate = () => {
 
         console.log('Pipeline status:', data.status);
 
+        // Handle multi-segment progress
+        if (data.isMultiSegment) {
+          setSegmentProgress({
+            completed: data.segmentsCompleted || 0,
+            total: data.totalSegments || 1,
+            current: data.currentSegment
+          });
+
+          if (data.isStitching) {
+            setIsStitching(true);
+            setProgress(90);
+            setGenerationStatus('Stitching segments together...');
+          } else if (data.segmentsCompleted < data.totalSegments) {
+            const segmentProgressPercent = ((data.segmentsCompleted || 0) / (data.totalSegments || 1)) * 80;
+            setProgress(10 + segmentProgressPercent);
+            setGenerationStatus(`Segment ${data.segmentsCompleted + 1}/${data.totalSegments} in progress...`);
+          }
+        }
+
         if (data.status === 'completed') {
           clearInterval(pollInterval);
           setIsPolling(false);
           setProgress(100);
-          setGenerationStatus('Video with audio ready!');
+          setGenerationStatus(data.isMultiSegment ? 'Video stitched and ready!' : 'Video with audio ready!');
           
           // Use the videoUrl from the response
           if (data.videoUrl) {
@@ -155,15 +203,17 @@ const Generate = () => {
               prompt: prompt,
               duration: duration
             });
-            toast.success('Video with audio generated successfully!');
+            toast.success(data.isMultiSegment ? 'Multi-segment video generated successfully!' : 'Video with audio generated successfully!');
           }
+          setSegmentProgress(null);
+          setIsStitching(false);
         } else if (data.status === 'failed') {
           clearInterval(pollInterval);
           setIsPolling(false);
           setGenerationStatus('Generation failed');
           
           // Show more user-friendly error messages
-          let errorMessage = data.error || 'Video generation failed';
+          let errorMessage = data.errorMessage || data.error || 'Video generation failed';
           if (errorMessage.includes('high server load')) {
             errorMessage = 'Server is currently busy. Please try again later.';
           } else if (errorMessage.includes('CUDA out of memory')) {
@@ -176,7 +226,13 @@ const Generate = () => {
           
           // Reset retry count for next attempt
           setRetryCount(0);
-        } else if (data.status === 'processing') {
+          setSegmentProgress(null);
+          setIsStitching(false);
+        } else if (data.status === 'stitching') {
+          setIsStitching(true);
+          setProgress(90);
+          setGenerationStatus('Stitching segments together...');
+        } else if (data.status === 'processing' && !data.isMultiSegment) {
           setProgress(50);
           setGenerationStatus('Generating video...');
         }
@@ -207,8 +263,8 @@ const Generate = () => {
       return;
     }
 
-    if ((profile?.credits || 0) < (duration === 6 ? 1 : 2)) {
-      toast.error('Insufficient credits. Please purchase more credits.');
+    if ((profile?.credits || 0) < creditCost) {
+      toast.error(`Insufficient credits. You need ${creditCost} credit${creditCost > 1 ? 's' : ''} for a ${duration}-second video. Please purchase more credits.`);
       return;
     }
 
@@ -485,31 +541,35 @@ const Generate = () => {
                       <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                         Video Duration
                       </label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <Button
-                          type="button"
-                          variant={duration === 6 ? "default" : "outline"}
-                          onClick={() => setDuration(6)}
-                          className="h-12 flex flex-col items-center justify-center space-y-1"
-                        >
-                          <span className="font-semibold">6 seconds</span>
-                          <span className="text-xs opacity-70">1 credit</span>
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={duration === 10 ? "default" : "outline"}
-                          onClick={() => setDuration(10)}
-                          className="h-12 flex flex-col items-center justify-center space-y-1"
-                        >
-                          <span className="font-semibold">10 seconds</span>
-                          <span className="text-xs opacity-70">2 credits</span>
-                        </Button>
+                      <div className="space-y-2">
+                        <input
+                          type="range"
+                          min="6"
+                          max="240"
+                          step="6"
+                          value={duration}
+                          onChange={(e) => setDuration(parseInt(e.target.value))}
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>6s</span>
+                          <span className="font-semibold">{duration}s</span>
+                          <span>240s (4min)</span>
+                        </div>
+                        <div className="p-3 bg-muted rounded-lg">
+                          <div className="text-sm font-medium mb-1">
+                            {segments.length} segment{segments.length > 1 ? 's' : ''} ({segments.map(s => `${s}s`).join(' + ')})
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Total cost: {creditCost} credit{creditCost > 1 ? 's' : ''} ({segments.map((seg, i) => `${seg === 6 ? '1' : '2'} credit${seg === 10 ? 's' : ''}`).join(' + ')})
+                          </div>
+                        </div>
                       </div>
                     </div>
 
                     <Button
                       onClick={generateVideo}
-                      disabled={!selectedImage || isGenerating || isPolling || (profile?.credits || 0) < (duration === 6 ? 1 : 2)}
+                      disabled={!selectedImage || isGenerating || isPolling || (profile?.credits || 0) < creditCost}
                       className="w-full"
                       variant="glass-primary"
                       size="lg"
@@ -527,7 +587,7 @@ const Generate = () => {
                       ) : (
                         <>
                           <Play className="w-4 h-4 mr-2" />
-                          Generate {duration}s Video ({(duration === 6 ? 1 : 2)} credit{duration === 10 ? 's' : ''})
+                          Generate {duration}s Video ({creditCost} credit{creditCost > 1 ? 's' : ''})
                         </>
                       )}
                     </Button>
@@ -544,18 +604,37 @@ const Generate = () => {
                                 ? "Step 2: Adding audio..." 
                                 : "Finalizing your video...")}
                         </p>
+                        {segmentProgress && (
+                          <div className="p-2 bg-muted rounded-lg">
+                            <div className="text-xs text-center font-medium mb-1">
+                              Segment Progress: {segmentProgress.completed}/{segmentProgress.total} completed
+                            </div>
+                            {segmentProgress.current && !isStitching && (
+                              <div className="text-xs text-center text-muted-foreground">
+                                Currently generating segment {segmentProgress.current}...
+                              </div>
+                            )}
+                            {isStitching && (
+                              <div className="text-xs text-center text-muted-foreground">
+                                Stitching all segments together...
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {generationId && (
                           <p className="text-xs text-center text-muted-foreground">
                             Generation ID: {generationId.substring(0, 8)}...
                           </p>
                         )}
-                        <div className="flex justify-center space-x-2 text-xs text-muted-foreground">
-                          <span className={progress >= 20 ? "text-accent" : ""}>1. Video</span>
-                          <span>→</span>
-                          <span className={progress >= 70 ? "text-accent" : ""}>2. Audio</span>
-                          <span>→</span>
-                          <span className={progress >= 100 ? "text-accent" : ""}>3. Complete</span>
-                        </div>
+                        {!segmentProgress && (
+                          <div className="flex justify-center space-x-2 text-xs text-muted-foreground">
+                            <span className={progress >= 20 ? "text-accent" : ""}>1. Video</span>
+                            <span>→</span>
+                            <span className={progress >= 70 ? "text-accent" : ""}>2. Audio</span>
+                            <span>→</span>
+                            <span className={progress >= 100 ? "text-accent" : ""}>3. Complete</span>
+                          </div>
+                        )}
                         {isPolling && generationId && (
                           <Button
                             onClick={async () => {
