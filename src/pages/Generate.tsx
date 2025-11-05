@@ -57,7 +57,8 @@ const Generate = () => {
     
     // Add remainder as 6s or 10s segment
     if (remainder > 0) {
-      segments.push(remainder >= 6 ? 10 : 6);
+      // If remainder is exactly 6, use 6s segment; if 7-9, use 10s segment
+      segments.push(remainder > 6 ? 10 : 6);
     }
     
     // If no segments (shouldn't happen), default to 6s
