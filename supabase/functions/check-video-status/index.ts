@@ -143,6 +143,41 @@ serve(async (req) => {
         );
       }
 
+      // If generation is waiting for input, get last frame URL
+      if (generation.status === 'waiting_for_input') {
+        // Get the last completed segment to get its last_frame_url
+        const { data: lastCompletedSegment } = await supabase
+          .from('video_segments')
+          .select('last_frame_url, segment_index')
+          .eq('parent_generation_id', generation.id)
+          .not('last_frame_url', 'is', null)
+          .order('segment_index', { ascending: false })
+          .limit(1)
+          .single();
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            generationId: generation.id,
+            status: generation.status,
+            videoUrl: null,
+            errorMessage: generation.error_message,
+            createdAt: generation.created_at,
+            completedAt: generation.completed_at,
+            isMultiSegment: true,
+            segmentsCompleted: segmentsCompleted,
+            totalSegments: totalSegments,
+            currentSegment: segmentsCompleted + 1,
+            lastFrameUrl: lastCompletedSegment?.last_frame_url || null,
+            isWaitingForInput: true
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200
+          }
+        );
+      }
+
       // Determine video URL (use stitched video if available, otherwise null)
       let videoUrl = generation.stitched_storage_url || generation.stitched_video_url || null;
 

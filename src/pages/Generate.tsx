@@ -44,6 +44,11 @@ const Generate = () => {
   const [retryCount, setRetryCount] = useState(0);
   const [segmentProgress, setSegmentProgress] = useState<{ completed: number; total: number; current?: number } | null>(null);
   const [isStitching, setIsStitching] = useState(false);
+  const [nextSegmentPrompt, setNextSegmentPrompt] = useState("");
+  const [lastFrameUrl, setLastFrameUrl] = useState<string | null>(null);
+  const [waitingForNextSegment, setWaitingForNextSegment] = useState(false);
+  const [parentGenerationId, setParentGenerationId] = useState<string | null>(null);
+  const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
 
   // Calculate segments and credit cost based on selected segment type
   const calculateSegments = (duration: number, segType: 6 | 10): { segments: number[], creditCost: number } => {
@@ -178,7 +183,18 @@ const Generate = () => {
             current: data.currentSegment
           });
 
-          if (data.isStitching) {
+          // Check if waiting for user input
+          if (data.status === 'waiting_for_input' || data.isWaitingForInput) {
+            clearInterval(pollInterval);
+            setIsPolling(false);
+            setWaitingForNextSegment(true);
+            setLastFrameUrl(data.lastFrameUrl);
+            setCurrentSegmentIndex((data.segmentsCompleted || 0));
+            setProgress(80);
+            setGenerationStatus(`Segment ${data.segmentsCompleted || 0}/${data.totalSegments || 1} completed. Please provide prompt for next segment.`);
+            toast.info(`Segment ${data.segmentsCompleted || 0} completed! Please provide the prompt for the next scene.`);
+            return;
+          } else if (data.isStitching) {
             setIsStitching(true);
             setProgress(90);
             setGenerationStatus('Stitching segments together...');
@@ -311,15 +327,73 @@ const Generate = () => {
       }
 
       // Store generation ID and start polling
-      setGenerationId(data.generationId);
+      const genId = data.generationId;
+      setGenerationId(genId);
+      if (data.isMultiSegment) {
+        setParentGenerationId(genId);
+        // For multi-segment, poll using parent generation ID
+        startPolling(genId);
+      } else {
+        // For single segment, poll using generation ID
+        startPolling(genId);
+      }
       toast.info('Video generation started! We\'ll notify you when it\'s ready.');
-      
-      // Start polling for status updates
-      startPolling(data.generationId);
       
     } catch (error: any) {
       console.error('Video generation error:', error);
       toast.error(error.message || 'Failed to generate video. Please try again.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const continueNextSegment = async () => {
+    if (!nextSegmentPrompt.trim()) {
+      toast.error('Please enter a prompt for the next scene');
+      return;
+    }
+
+    if (!lastFrameUrl || !parentGenerationId) {
+      toast.error('Missing information to continue segment generation');
+      return;
+    }
+
+    setIsGenerating(true);
+    setProgress(85);
+    setGenerationStatus(`Generating segment ${currentSegmentIndex + 1}...`);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('continue-segment-generation', {
+        body: {
+          parentGenerationId: parentGenerationId,
+          segmentIndex: currentSegmentIndex,
+          prompt: nextSegmentPrompt.trim(),
+          lastFrameUrl: lastFrameUrl
+        }
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Failed to continue segment generation');
+      }
+
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'Failed to continue segment generation');
+      }
+
+      // Clear waiting state and resume polling
+      setWaitingForNextSegment(false);
+      setNextSegmentPrompt("");
+      setLastFrameUrl(null);
+      setIsPolling(true);
+      
+      // Resume polling with parent generation ID
+      startPolling(parentGenerationId);
+      
+      toast.success(`Segment ${currentSegmentIndex + 1} generation started!`);
+
+    } catch (error: any) {
+      console.error('Error continuing segment generation:', error);
+      toast.error(error.message || 'Failed to continue segment generation');
     } finally {
       setIsGenerating(false);
     }
@@ -704,11 +778,64 @@ const Generate = () => {
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <VideoIcon className="w-5 h-5" />
-                      Generated Video
+                      {waitingForNextSegment ? 'Next Segment' : 'Generated Video'}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {generatedVideo ? (
+                    {waitingForNextSegment && lastFrameUrl ? (
+                      <div className="space-y-4">
+                        <div className="text-center">
+                          <p className="text-sm font-medium mb-2">
+                            Segment {segmentProgress?.completed || 0} completed! 
+                            Provide the prompt for segment {currentSegmentIndex + 1}:
+                          </p>
+                          <p className="text-xs text-muted-foreground mb-4">
+                            This is the last frame from the previous segment. Describe what should happen next.
+                          </p>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <img 
+                            src={lastFrameUrl} 
+                            alt="Last frame from previous segment" 
+                            className="w-full rounded-lg border-2 border-primary/20"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">
+                            Next Scene Prompt
+                          </label>
+                          <Textarea
+                            value={nextSegmentPrompt}
+                            onChange={(e) => setNextSegmentPrompt(e.target.value)}
+                            placeholder="Describe what should happen in the next scene... (e.g., 'The alien walks towards a glowing portal')"
+                            className="resize-none"
+                            rows={4}
+                          />
+                        </div>
+
+                        <Button
+                          onClick={continueNextSegment}
+                          disabled={!nextSegmentPrompt.trim() || isGenerating}
+                          className="w-full"
+                          variant="glass-primary"
+                          size="lg"
+                        >
+                          {isGenerating ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                              Generating Segment {currentSegmentIndex + 1}...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4 mr-2" />
+                              Generate Segment {currentSegmentIndex + 1}
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    ) : generatedVideo ? (
                       <div className="space-y-4">
                         <video
                           src={generatedVideo.url}

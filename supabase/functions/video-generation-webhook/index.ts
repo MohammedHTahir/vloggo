@@ -76,9 +76,9 @@ serve(async (req) => {
         } else if (Array.isArray(output) && output.length > 0) {
           videoUrl = output[0];
           console.log('Video URL extracted from array:', videoUrl);
-        } else {
-          console.error('Unexpected output format:', output);
-          throw new Error('Unexpected output format from Replicate');
+      } else {
+        console.error('Unexpected output format:', output);
+        throw new Error('Unexpected output format from Replicate');
         }
       } else {
         console.error('Unexpected output type:', typeof output);
@@ -91,48 +91,48 @@ serve(async (req) => {
       }
 
       console.log('Video URL with audio:', videoUrl);
-
-      // Download and store video in Supabase storage
-      let storageUrl = videoUrl; // Fallback to original URL
       
-      try {
+      // Download and store video in Supabase storage
+        let storageUrl = videoUrl; // Fallback to original URL
+        
+        try {
         console.log('Downloading video with audio from Replicate...');
-        const videoResponse = await fetch(videoUrl);
-        if (!videoResponse.ok) {
+          const videoResponse = await fetch(videoUrl);
+          if (!videoResponse.ok) {
           throw new Error(`Failed to download video: ${videoResponse.status} ${videoResponse.statusText}`);
-        }
-        
-        const videoBlob = await videoResponse.blob();
+          }
+          
+          const videoBlob = await videoResponse.blob();
         console.log('Video downloaded, size:', videoBlob.size, 'bytes');
-        
-        // Generate unique filename
-        const videoFileName = `video_${crypto.randomUUID()}.mp4`;
-        const videoPath = `uploads/${generation.user_id}/${videoFileName}`;
+          
+          // Generate unique filename
+          const videoFileName = `video_${crypto.randomUUID()}.mp4`;
+          const videoPath = `uploads/${generation.user_id}/${videoFileName}`;
         
         console.log('Uploading to Supabase storage, path:', videoPath);
-        
-        // Upload to Supabase storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('videos')
-          .upload(videoPath, videoBlob, {
-            contentType: 'video/mp4',
+          
+          // Upload to Supabase storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('videos')
+            .upload(videoPath, videoBlob, {
+              contentType: 'video/mp4',
             upsert: false,
             cacheControl: '3600'
-          });
-        
-        if (uploadError) {
+            });
+          
+          if (uploadError) {
           console.error('Failed to upload video to storage:', uploadError);
-          throw new Error(`Storage upload failed: ${uploadError.message}`);
-        }
+            throw new Error(`Storage upload failed: ${uploadError.message}`);
+          }
         
         console.log('Upload successful:', uploadData);
-        
-        // Get public URL for the stored video
-        const { data: { publicUrl } } = supabase.storage
-          .from('videos')
-          .getPublicUrl(videoPath);
-        
-        storageUrl = publicUrl;
+          
+          // Get public URL for the stored video
+          const { data: { publicUrl } } = supabase.storage
+            .from('videos')
+            .getPublicUrl(videoPath);
+          
+          storageUrl = publicUrl;
         console.log('Video successfully stored in Supabase storage:', storageUrl);
 
       } catch (storageError: any) {
@@ -206,18 +206,9 @@ serve(async (req) => {
 
         // Check if more segments remain
         if (segmentsCompleted < totalSegments) {
-          console.log('Triggering next segment generation...');
+          console.log('Segment completed, extracting last frame and waiting for user input...');
           
           try {
-            // Get all previous prompts for context
-            const { data: previousSegments } = await supabase
-              .from('video_segments')
-              .select('prompt')
-              .eq('parent_generation_id', parentGeneration.id)
-              .order('segment_index', { ascending: true });
-
-            const previousPrompts = previousSegments?.map(s => s.prompt).filter(Boolean) || [];
-
             // Extract last frame from completed segment
             const extractFrameResponse = await fetch(`${supabaseUrl}/functions/v1/extract-last-frame`, {
               method: 'POST',
@@ -235,87 +226,37 @@ serve(async (req) => {
             }
 
             const extractFrameData = await extractFrameResponse.json();
-            const nextImageUrl = extractFrameData.frameUrl;
+            const lastFrameUrl = extractFrameData.frameUrl;
 
-            console.log('Last frame extracted:', nextImageUrl);
+            console.log('Last frame extracted:', lastFrameUrl);
 
-            // Generate continuation prompt
-            const continuationPromptResponse = await fetch(`${supabaseUrl}/functions/v1/generate-prompt-continuation`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseServiceKey}`
-              },
-              body: JSON.stringify({
-                originalPrompt: parentGeneration.prompt,
-                segmentIndex: segmentsCompleted,
-                previousPrompts: previousPrompts
-              })
-            });
-
-            if (!continuationPromptResponse.ok) {
-              throw new Error('Failed to generate continuation prompt');
-            }
-
-            const continuationPromptData = await continuationPromptResponse.json();
-            const nextPrompt = continuationPromptData.continuationPrompt;
-
-            console.log('Continuation prompt generated:', nextPrompt);
-
-            // Get next segment duration
-            const { data: nextSegment } = await supabase
-              .from('video_segments')
-              .select('duration')
-              .eq('parent_generation_id', parentGeneration.id)
-              .eq('segment_index', segmentsCompleted)
-              .single();
-
-            if (!nextSegment) {
-              throw new Error('Next segment not found');
-            }
-
-            // Update segment prompt
+            // Store last frame URL in the completed segment
             await supabase
               .from('video_segments')
-              .update({ prompt: nextPrompt })
-              .eq('parent_generation_id', parentGeneration.id)
-              .eq('segment_index', segmentsCompleted);
-
-            // Trigger next segment generation
-            // Determine segmentType from segment duration (all segments in a generation use the same type)
-            const segmentType = nextSegment.duration === 6 ? 6 : 10;
-            
-            const generateSegmentResponse = await fetch(`${supabaseUrl}/functions/v1/generate-video`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseServiceKey}`
-              },
-              body: JSON.stringify({
-                imageUrl: nextImageUrl,
-                prompt: nextPrompt,
-                duration: nextSegment.duration,
-                segmentType: segmentType,
-                parentGenerationId: parentGeneration.id,
-                segmentIndex: segmentsCompleted,
-                isSegment: true
+              .update({
+                last_frame_url: lastFrameUrl
               })
-            });
+              .eq('parent_generation_id', parentGeneration.id)
+              .eq('segment_index', generation.segment_index);
 
-            if (!generateSegmentResponse.ok) {
-              throw new Error('Failed to trigger next segment generation');
-            }
+            // Update parent generation to wait for user input
+            await supabase
+              .from('video_generations')
+              .update({
+                status: 'waiting_for_input'
+              })
+              .eq('id', parentGeneration.id);
 
-            console.log('Next segment generation triggered successfully');
+            console.log('Waiting for user input for next segment. Last frame URL:', lastFrameUrl);
 
-          } catch (segmentError: any) {
-            console.error('Error triggering next segment:', segmentError);
+          } catch (frameError: any) {
+            console.error('Error extracting last frame:', frameError);
             // Mark parent generation as failed
             await supabase
               .from('video_generations')
               .update({
                 status: 'failed',
-                error_message: `Failed to generate segment ${segmentsCompleted + 1}: ${segmentError.message}`
+                error_message: `Failed to extract last frame for segment ${segmentsCompleted + 1}: ${frameError.message}`
               })
               .eq('id', parentGeneration.id);
           }
