@@ -188,14 +188,14 @@ serve(async (req) => {
     if (isMultiSegment) {
       console.log('Creating multi-segment generation...');
       
-      // Create parent generation record
+      // Create parent generation record (parent doesn't have a prediction_id, only segments do)
       const parentGenerationId = crypto.randomUUID();
       const { error: saveParentError } = await supabase
         .from('video_generations')
         .insert({
           id: parentGenerationId,
           user_id: user.id,
-          prediction_id: prediction.id,
+          prediction_id: `parent-${parentGenerationId}`, // Placeholder - parent doesn't have a real prediction_id
           status: 'processing',
           image_url: imageUrl,
           prompt: prompt,

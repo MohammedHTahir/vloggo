@@ -1,4 +1,4 @@
-project_id = "fsrabyevssdxaglriclw"
+project_id = "kzacmqybstbsjbdkwtvk"
 
 [functions.generate-video]
 verify_jwt = true
@@ -6,16 +6,7 @@ verify_jwt = true
 [functions.video-generation-webhook]
 verify_jwt = false
 
-[functions.video-pipeline-webhook]
-verify_jwt = false
-
 [functions.check-video-status]
-verify_jwt = true
-
-[functions.init-leonardo-upload]
-verify_jwt = true
-
-[functions.upload-leonardo-file]
 verify_jwt = true
 
 [functions.add-existing-videos]
@@ -27,5 +18,20 @@ verify_jwt = true
 [functions.verify-payment]
 verify_jwt = false
 
-[functions.complete-generation]
-verify_jwt = false
+[functions.continue-segment-generation]
+verify_jwt = true
+
+[functions.stitch-videos]
+verify_jwt = true
+
+[functions.extract-last-frame]
+verify_jwt = true
+
+[functions.generate-prompt-continuation]
+verify_jwt = true
+
+[functions.support-chat]
+verify_jwt = true
+[auth.email.template.confirmation]
+subject = "Confirm your email for Vloggo"
+content_path = "./supabase/templates/confirmation.html"

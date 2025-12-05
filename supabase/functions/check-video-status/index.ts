@@ -94,8 +94,12 @@ serve(async (req) => {
         .eq('parent_generation_id', generation.id)
         .order('segment_index', { ascending: true });
 
+      // Count segments that actually have completed_at set (meaning they've been generated and completed)
       const segmentsCompleted = segments?.filter(s => s.completed_at).length || 0;
       const totalSegments = generation.total_segments || 1;
+      
+      console.log(`[check-video-status] Parent ${generation.id}: segmentsCompleted=${segmentsCompleted}, totalSegments=${totalSegments}`);
+      console.log(`[check-video-status] Segments:`, segments?.map(s => ({ index: s.segment_index, completed: !!s.completed_at })));
 
       // If generation is already completed, return immediately
       if (generation.status === 'completed') {
@@ -143,24 +147,44 @@ serve(async (req) => {
         );
       }
 
-      // If generation is waiting for input, get last frame URL
+      // If generation is waiting for input, get last frame URL and video URL
       if (generation.status === 'waiting_for_input') {
-        // Get the last completed segment to get its last_frame_url
+        // Get the last completed segment to get its storage_url and last_frame_url
+        // Only get segments that have completed_at set (meaning they're actually completed)
         const { data: lastCompletedSegment } = await supabase
           .from('video_segments')
-          .select('last_frame_url, segment_index')
+          .select('storage_url, last_frame_url, segment_index')
           .eq('parent_generation_id', generation.id)
-          .not('last_frame_url', 'is', null)
+          .not('completed_at', 'is', null) // Only get completed segments
           .order('segment_index', { ascending: false })
           .limit(1)
           .single();
+
+        // Also get the segment generation record to get storage_url if video_segments doesn't have it
+        let segmentVideoUrl = lastCompletedSegment?.storage_url || null;
+        if (!segmentVideoUrl) {
+          // Get the last completed segment generation (status = 'completed')
+          const { data: lastSegmentGeneration } = await supabase
+            .from('video_generations')
+            .select('storage_url, video_url, segment_index')
+            .eq('parent_generation_id', generation.id)
+            .eq('is_segment', true)
+            .eq('status', 'completed') // Only get completed segments
+            .order('segment_index', { ascending: false })
+            .limit(1)
+            .maybeSingle(); // Use maybeSingle() instead of single() to handle no results gracefully
+          
+          segmentVideoUrl = lastSegmentGeneration?.storage_url || lastSegmentGeneration?.video_url || null;
+        }
+        
+        console.log(`[check-video-status] waiting_for_input: segmentsCompleted=${segmentsCompleted}, videoUrl=${segmentVideoUrl}, lastFrameUrl=${lastCompletedSegment?.last_frame_url || 'null'}`);
 
         return new Response(
           JSON.stringify({
             success: true,
             generationId: generation.id,
             status: generation.status,
-            videoUrl: null,
+            videoUrl: segmentVideoUrl, // Return video URL so client can extract frame
             errorMessage: generation.error_message,
             createdAt: generation.created_at,
             completedAt: generation.completed_at,

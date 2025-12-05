@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Confirm your email</title>
+    <style>
+      /* Minimal resets for better cross-client consistency */
+      body { margin: 0; padding: 0; background: #0f1115; -webkit-font-smoothing: antialiased; }
+      table { border-collapse: collapse; }
+      img { border: 0; line-height: 100%; outline: none; text-decoration: none; }
+      a { text-decoration: none; }
+    </style>
+  </head>
+  <body style="background:#0f1115;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0f1115;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#12161d;border:1px solid #1f2530;border-radius:16px;">
+            <tr>
+              <td style="padding:32px 32px 16px 32px; text-align:center;">
+                <div style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#22d3ee);border-radius:12px;padding:8px 14px;color:#0f1115;font-weight:700;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">Vloggo</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 8px 32px; text-align:center;">
+                <h1 style="margin:0;color:#e5e7eb;font-size:24px;line-height:32px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">Confirm your email</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 16px 32px; text-align:center;">
+                <p style="margin:0;color:#9aa4b2;font-size:15px;line-height:22px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                  Hi <span style="color:#e5e7eb;">{{ .Email }}</span>, thanks for joining Vloggo.
+                  Please verify your email address to finish setting up your account.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:8px 32px 24px 32px;">
+                <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:14px 22px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#22d3ee);color:#0f1115;font-weight:700;font-size:15px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                  Confirm email
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 8px 32px; text-align:center;">
+                <p style="margin:0;color:#768196;font-size:13px;line-height:20px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                  If the button doesn’t work, paste this link into your browser:
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 24px 32px; text-align:center;">
+                <a href="{{ .ConfirmationURL }}" style="color:#9bd5ff;font-size:13px;line-height:20px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;word-break:break-all;">{{ .ConfirmationURL }}</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 24px 32px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0f1115;border-radius:12px;">
+                  <tr>
+                    <td style="padding:16px 20px;">
+                      <p style="margin:0;color:#9aa4b2;font-size:13px;line-height:20px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                        If you did not create an account, you can safely ignore this email.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 32px 32px;text-align:center;">
+                <p style="margin:0;color:#5b6573;font-size:12px;line-height:18px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                  Sent from <a href="{{ .SiteURL }}" style="color:#9bd5ff;">{{ .SiteURL }}</a>
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+  </html>

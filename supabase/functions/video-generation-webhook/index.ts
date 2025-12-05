@@ -38,17 +38,29 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Find the generation record
+    // Find the generation record (only segments have real prediction_ids)
+    console.log('Looking for generation with prediction_id:', predictionId);
     const { data: generation, error: generationError } = await supabase
       .from('video_generations')
       .select('*')
       .eq('prediction_id', predictionId)
+      .eq('is_segment', true) // Only segments have real prediction_ids from Replicate
       .single();
 
     if (generationError || !generation) {
       console.error('Generation not found for prediction ID:', predictionId);
+      console.error('Generation error:', generationError);
+      
+      // Try to find any generation with this prediction_id (for debugging)
+      const { data: allGenerations } = await supabase
+        .from('video_generations')
+        .select('id, prediction_id, is_segment, parent_generation_id')
+        .eq('prediction_id', predictionId);
+      
+      console.error('Found generations with this prediction_id:', allGenerations);
+      
       return new Response(
-        JSON.stringify({ error: 'Generation not found' }),
+        JSON.stringify({ error: 'Generation not found', predictionId }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -206,60 +218,18 @@ serve(async (req) => {
 
         // Check if more segments remain
         if (segmentsCompleted < totalSegments) {
-          console.log('Segment completed, extracting last frame and waiting for user input...');
+          console.log('Segment completed, waiting for user input...');
           
-          try {
-            // Extract last frame from completed segment
-            const extractFrameResponse = await fetch(`${supabaseUrl}/functions/v1/extract-last-frame`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseServiceKey}`
-              },
-              body: JSON.stringify({
-                videoUrl: storageUrl
-              })
-            });
+          // Update parent generation to wait for user input
+          // Frame extraction will be done client-side using HTML5 video/canvas
+          await supabase
+            .from('video_generations')
+            .update({
+              status: 'waiting_for_input'
+            })
+            .eq('id', parentGeneration.id);
 
-            if (!extractFrameResponse.ok) {
-              throw new Error('Failed to extract last frame');
-            }
-
-            const extractFrameData = await extractFrameResponse.json();
-            const lastFrameUrl = extractFrameData.frameUrl;
-
-            console.log('Last frame extracted:', lastFrameUrl);
-
-            // Store last frame URL in the completed segment
-            await supabase
-              .from('video_segments')
-              .update({
-                last_frame_url: lastFrameUrl
-              })
-              .eq('parent_generation_id', parentGeneration.id)
-              .eq('segment_index', generation.segment_index);
-
-            // Update parent generation to wait for user input
-            await supabase
-              .from('video_generations')
-              .update({
-                status: 'waiting_for_input'
-              })
-              .eq('id', parentGeneration.id);
-
-            console.log('Waiting for user input for next segment. Last frame URL:', lastFrameUrl);
-
-          } catch (frameError: any) {
-            console.error('Error extracting last frame:', frameError);
-            // Mark parent generation as failed
-            await supabase
-              .from('video_generations')
-              .update({
-                status: 'failed',
-                error_message: `Failed to extract last frame for segment ${segmentsCompleted + 1}: ${frameError.message}`
-              })
-              .eq('id', parentGeneration.id);
-          }
+          console.log('Waiting for user input for next segment. Client will extract frame.');
 
         } else {
           // All segments completed, stitch them together

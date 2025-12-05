@@ -1,16 +1,18 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1'
-import Replicate from "https://esm.sh/replicate@0.29.4"
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import Replicate from "https://esm.sh/replicate@0.29.4";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
+};
 
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, {
+      headers: corsHeaders
+    });
   }
 
   try {
@@ -22,7 +24,7 @@ serve(async (req) => {
     }
 
     const replicate = new Replicate({
-      auth: replicateApiKey,
+      auth: replicateApiKey
     });
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -31,85 +33,118 @@ serve(async (req) => {
     if (!supabaseUrl || !supabaseServiceKey) {
       throw new Error('Missing Supabase credentials');
     }
-    
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       global: {
-        headers: { Authorization: req.headers.get('Authorization')! },
-      },
+        headers: {
+          Authorization: req.headers.get('Authorization')
+        }
+      }
     });
 
     // Get user from token
     const authHeader = req.headers.get('Authorization') || '';
     const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
     if (!jwt) {
-      return new Response(
-        JSON.stringify({ error: 'Authentication required' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({
+        error: 'Authentication required'
+      }), {
+        status: 401,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
     }
-    
+
     const { data: { user }, error: userError } = await supabase.auth.getUser(jwt);
     if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Authentication required', details: userError?.message }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({
+        error: 'Authentication required',
+        details: userError?.message
+      }), {
+        status: 401,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
     }
 
     const body = await req.json();
     const { parentGenerationId, segmentIndex, prompt, lastFrameUrl } = body;
 
     if (!parentGenerationId || segmentIndex === undefined || !prompt || !lastFrameUrl) {
-      return new Response(
-        JSON.stringify({ error: 'Parent generation ID, segment index, prompt, and last frame URL are required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({
+        error: 'Parent generation ID, segment index, prompt, and last frame URL are required'
+      }), {
+        status: 400,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
     }
 
     // Get parent generation
-    const { data: parentGeneration } = await supabase
-      .from('video_generations')
-      .select('*')
-      .eq('id', parentGenerationId)
-      .eq('user_id', user.id)
-      .single();
+    const { data: parentGeneration } = await supabase.from('video_generations').select('*').eq('id', parentGenerationId).eq('user_id', user.id).single();
 
     if (!parentGeneration) {
-      return new Response(
-        JSON.stringify({ error: 'Parent generation not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({
+        error: 'Parent generation not found'
+      }), {
+        status: 404,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
     }
 
     // Get next segment details
-    const { data: nextSegment } = await supabase
+    console.log('Looking for segment:', { parentGenerationId, segmentIndex });
+    
+    // First, check what segments exist
+    const { data: allSegments, error: segmentsError } = await supabase
+      .from('video_segments')
+      .select('segment_index, duration, prompt')
+      .eq('parent_generation_id', parentGenerationId)
+      .order('segment_index');
+    
+    console.log('All segments for this parent:', allSegments);
+    
+    const { data: nextSegment, error: segmentError } = await supabase
       .from('video_segments')
       .select('duration')
       .eq('parent_generation_id', parentGenerationId)
       .eq('segment_index', segmentIndex)
       .single();
 
-    if (!nextSegment) {
-      return new Response(
-        JSON.stringify({ error: 'Next segment not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (segmentError || !nextSegment) {
+      console.error('Segment lookup error:', segmentError);
+      console.error('Available segments:', allSegments);
+      return new Response(JSON.stringify({
+        error: 'Next segment not found',
+        details: `Looking for segment index ${segmentIndex}, but found segments: ${allSegments?.map(s => s.segment_index).join(', ') || 'none'}`,
+        segmentError: segmentError?.message
+      }), {
+        status: 404,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
+      });
     }
 
     // Update segment prompt
-    await supabase
-      .from('video_segments')
-      .update({ prompt: prompt })
-      .eq('parent_generation_id', parentGenerationId)
-      .eq('segment_index', segmentIndex);
+    await supabase.from('video_segments').update({
+      prompt: prompt
+    }).eq('parent_generation_id', parentGenerationId).eq('segment_index', segmentIndex);
 
     // Update parent generation status back to processing
-    await supabase
-      .from('video_generations')
-      .update({
-        status: 'processing'
-      })
-      .eq('id', parentGenerationId);
+    await supabase.from('video_generations').update({
+      status: 'processing'
+    }).eq('id', parentGenerationId);
 
     // Generate video with Replicate
     const segmentType = nextSegment.duration === 6 ? 6 : 10;
@@ -127,7 +162,9 @@ serve(async (req) => {
       model: "lightricks/ltx-2-fast",
       input: input,
       webhook: webhookUrl,
-      webhook_events_filter: ["completed"]
+      webhook_events_filter: [
+        "completed"
+      ]
     });
 
     // Create segment generation record
@@ -149,32 +186,31 @@ serve(async (req) => {
 
     console.log('Next segment generation started:', segmentGenerationId);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        segmentGenerationId: segmentGenerationId,
-        predictionId: prediction.id,
-        status: 'processing',
-        message: `Segment ${segmentIndex + 1} generation started`
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200
-      }
-    );
+    return new Response(JSON.stringify({
+      success: true,
+      segmentGenerationId: segmentGenerationId,
+      predictionId: prediction.id,
+      status: 'processing',
+      message: `Segment ${segmentIndex + 1} generation started`
+    }), {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
+      },
+      status: 200
+    });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error in continue-segment-generation function:', error);
-    return new Response(
-      JSON.stringify({ 
-        error: 'Segment generation failed', 
-        details: error.message 
-      }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500 
-      }
-    );
+    return new Response(JSON.stringify({
+      error: 'Segment generation failed',
+      details: error.message
+    }), {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
+      },
+      status: 500
+    });
   }
 });
-
