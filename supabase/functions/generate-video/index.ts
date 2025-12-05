@@ -88,7 +88,7 @@ serve(async (req) => {
     }
 
     // Calculate segments and credit cost based on segment type
-    function calculateSegments(duration: number, segType: 6 | 10): { segments: number[], creditCost: number } {
+    function calculateSegments(duration: number, segType: 6 | 10 | 20): { segments: number[], creditCost: number } {
       const segments: number[] = [];
       const segmentCount = Math.ceil(duration / segType);
       
@@ -97,14 +97,16 @@ serve(async (req) => {
         segments.push(segType);
       }
       
-      const creditCost = segments.reduce((sum, seg) => sum + (seg === 6 ? 1 : 2), 0);
+      const creditCost = segments.reduce((sum, seg) => sum + (seg === 6 ? 1 : seg === 10 ? 2 : 3), 0);
       return { segments, creditCost };
     }
 
     // Use segmentType from request, or default based on duration if not provided (for backward compatibility)
-    const finalSegmentType = segmentType || (duration <= 6 ? 6 : 10);
+    const finalSegmentType: 6 | 10 | 20 = segmentType ?? (duration <= 6 ? 6 : duration <= 10 ? 10 : 20);
     const isMultiSegment = duration > finalSegmentType && !isSegment;
-    const { segments, creditCost } = isMultiSegment ? calculateSegments(duration, finalSegmentType) : { segments: [duration], creditCost: duration === 6 ? 1 : 2 };
+    const { segments, creditCost } = isMultiSegment
+      ? calculateSegments(duration, finalSegmentType)
+      : { segments: [duration], creditCost: duration === 6 ? 1 : duration === 10 ? 2 : 3 };
     
     console.log(`Duration: ${duration}s, Is multi-segment: ${isMultiSegment}, Segments: ${segments.join(',')}s, Credit cost: ${creditCost}`);
 

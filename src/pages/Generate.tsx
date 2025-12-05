@@ -30,7 +30,6 @@ const Generate = () => {
   const [imagePreview, setImagePreview] = useState<string>("");
   const [prompt, setPrompt] = useState("A cinematic transformation with dramatic movement, atmosphere, and natural ambient audio");
   const [duration, setDuration] = useState<number>(6);
-  const [segmentType, setSegmentType] = useState<6 | 10>(6); // Segment type: 6s or 10s
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -43,39 +42,13 @@ const Generate = () => {
   const [isPolling, setIsPolling] = useState(false);
   const [generationStatus, setGenerationStatus] = useState<string>('');
   const [retryCount, setRetryCount] = useState(0);
-  const [segmentProgress, setSegmentProgress] = useState<{ completed: number; total: number; current?: number } | null>(null);
-  const [isStitching, setIsStitching] = useState(false);
-  const [nextSegmentPrompt, setNextSegmentPrompt] = useState("");
-  const [lastFrameUrl, setLastFrameUrl] = useState<string | null>(null);
-  const [waitingForNextSegment, setWaitingForNextSegment] = useState(false);
-  const [parentGenerationId, setParentGenerationId] = useState<string | null>(null);
-  const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
-  const [completedSegmentVideoUrl, setCompletedSegmentVideoUrl] = useState<string | null>(null);
+  
 
   // Calculate segments and credit cost based on selected segment type
-  const calculateSegments = (duration: number, segType: 6 | 10): { segments: number[], creditCost: number } => {
-    const segments: number[] = [];
-    const segmentCount = Math.ceil(duration / segType);
-    
-    // Add segments (all segments use the same duration)
-    for (let i = 0; i < segmentCount; i++) {
-      segments.push(segType);
-    }
-    
-    const creditCost = segments.reduce((sum, seg) => sum + (seg === 6 ? 1 : 2), 0);
-    return { segments, creditCost };
-  };
-
-  const { segments, creditCost } = calculateSegments(duration, segmentType);
-  
-  // Update duration when segment type changes to nearest valid value
-  const handleSegmentTypeChange = (newType: 6 | 10) => {
-    setSegmentType(newType);
-    // Round duration to nearest multiple of new segment type
-    const roundedDuration = Math.round(duration / newType) * newType;
-    const clampedDuration = Math.max(newType, Math.min(240, roundedDuration));
-    setDuration(clampedDuration);
-  };
+  // Allowed single durations and credit pricing
+  const allowedDurations = [6, 10, 20] as const;
+  const creditCostFor = (d: number) => (d === 6 ? 1 : d === 10 ? 2 : d === 20 ? 3 : 1);
+  const creditCost = creditCostFor(duration);
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -121,185 +94,7 @@ const Generate = () => {
 
 
 
-  const extractLastFrameFromVideo = async (videoUrl: string, parentGenerationId: string, segmentIndex: number): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      console.log('Starting frame extraction from:', videoUrl);
-      const video = document.createElement('video');
-      video.crossOrigin = 'anonymous';
-      video.preload = 'auto';
-      video.muted = true;
-      video.playsInline = true;
-      
-      let resolved = false;
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          console.error('Frame extraction timeout');
-          video.remove();
-          reject(new Error('Frame extraction timed out. Video may not be accessible.'));
-        }
-      }, 20000); // 20 second timeout
-      
-      const cleanup = () => {
-        clearTimeout(timeout);
-        if (video.parentNode) {
-          video.remove();
-        }
-      };
-      
-      // Method 1: Try using loadeddata event and seek to end
-      video.onloadeddata = () => {
-        console.log('Video loaded, duration:', video.duration);
-        if (video.duration && video.duration > 0) {
-          // Seek to very end
-          video.currentTime = video.duration - 0.01;
-        }
-      };
-      
-      // Method 2: Use timeupdate to detect when we're near the end
-      video.ontimeupdate = () => {
-        if (video.duration && video.currentTime >= video.duration - 0.1) {
-          console.log('Video reached end, extracting frame...');
-          video.pause();
-          extractFrame();
-        }
-      };
-      
-      // Method 3: Use seeked event as fallback
-      video.onseeked = () => {
-        console.log('Video seeked to:', video.currentTime);
-        // Small delay to ensure frame is ready
-        setTimeout(() => {
-          if (!resolved) {
-            extractFrame();
-          }
-        }, 200);
-      };
-      
-      const extractFrame = () => {
-        if (resolved) return;
-        
-        try {
-          console.log('Extracting frame, video dimensions:', video.videoWidth, 'x', video.videoHeight);
-          
-          // Create canvas and draw the video frame
-          const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth || 1920;
-          canvas.height = video.videoHeight || 1080;
-          const ctx = canvas.getContext('2d');
-          
-          if (!ctx) {
-            throw new Error('Could not get canvas context');
-          }
-          
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          console.log('Frame drawn to canvas');
-          
-          // Convert canvas to blob
-          canvas.toBlob(async (blob) => {
-            if (!blob) {
-              cleanup();
-              if (!resolved) {
-                resolved = true;
-                reject(new Error('Failed to create frame blob'));
-              }
-              return;
-            }
-            
-            console.log('Frame blob created, size:', blob.size);
-            
-            try {
-              // Upload frame to Supabase storage
-              const frameFileName = `frame_${crypto.randomUUID()}.jpg`;
-              const framePath = `frames/${user?.id || 'anonymous'}/${frameFileName}`;
-              
-              console.log('Uploading frame to:', framePath);
-              const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('images')
-                .upload(framePath, blob, {
-                  contentType: 'image/jpeg',
-                  upsert: false,
-                  cacheControl: '3600'
-                });
-              
-              if (uploadError) {
-                console.error('Upload error:', uploadError);
-                throw new Error(`Failed to upload frame: ${uploadError.message}`);
-              }
-              
-              console.log('Frame uploaded successfully');
-              
-              // Get public URL
-              const { data: { publicUrl } } = supabase.storage
-                .from('images')
-                .getPublicUrl(framePath);
-              
-              console.log('Frame URL:', publicUrl);
-              
-              // Update segment record with last_frame_url
-              const { error: updateError } = await supabase
-                .from('video_segments' as any)
-                .update({ last_frame_url: publicUrl })
-                .eq('parent_generation_id', parentGenerationId)
-                .eq('segment_index', segmentIndex);
-              
-              if (updateError) {
-                console.warn('Failed to update segment with frame URL:', updateError);
-              }
-              
-              cleanup();
-              if (!resolved) {
-                resolved = true;
-                resolve(publicUrl);
-              }
-            } catch (error) {
-              cleanup();
-              if (!resolved) {
-                resolved = true;
-                reject(error);
-              }
-            }
-          }, 'image/jpeg', 0.95);
-        } catch (error) {
-          cleanup();
-          if (!resolved) {
-            resolved = true;
-            reject(error);
-          }
-        }
-      };
-      
-      video.onerror = (error) => {
-        console.error('Video load error:', error, video.error);
-        cleanup();
-        if (!resolved) {
-          resolved = true;
-          reject(new Error(`Failed to load video for frame extraction. ${video.error?.message || 'Check CORS settings.'}`));
-        }
-      };
-      
-      video.oncanplay = () => {
-        console.log('Video can play');
-      };
-      
-      video.onloadedmetadata = () => {
-        console.log('Video metadata loaded, duration:', video.duration);
-        if (video.duration && video.duration > 0) {
-          // Seek to end
-          video.currentTime = Math.max(0, video.duration - 0.01);
-        }
-      };
-      
-      // Start loading
-      video.src = videoUrl;
-      video.load();
-      
-      // Also try to play to ensure video loads
-      video.play().catch(err => {
-        console.warn('Video play failed (expected for muted video):', err);
-      });
-    });
-  };
+  
 
   const checkVideoStatus = async (genId: string) => {
     try {
@@ -357,108 +152,7 @@ const Generate = () => {
 
         console.log('Pipeline status:', data.status);
 
-        // Handle multi-segment progress
-        if (data.isMultiSegment) {
-          setSegmentProgress({
-            completed: data.segmentsCompleted || 0,
-            total: data.totalSegments || 1,
-            current: data.currentSegment
-          });
-
-          // Check if waiting for user input
-          if (data.status === 'waiting_for_input' || data.isWaitingForInput) {
-            console.log('Detected waiting_for_input status');
-            console.log('Data:', { videoUrl: data.videoUrl, lastFrameUrl: data.lastFrameUrl, segmentsCompleted: data.segmentsCompleted, totalSegments: data.totalSegments });
-            
-            // Check if all segments are completed - if so, we should be stitching, not waiting for input
-            if (data.segmentsCompleted >= data.totalSegments) {
-              console.log('All segments completed, should proceed to stitching');
-              
-              // Show the last completed segment video
-              if (data.videoUrl) {
-                console.log('Setting completed segment video URL:', data.videoUrl);
-                setCompletedSegmentVideoUrl(data.videoUrl);
-              }
-              
-              // Update UI to show stitching status
-              setIsStitching(true);
-              setProgress(90);
-              setGenerationStatus('All segments completed. Stitching videos together...');
-              setWaitingForNextSegment(false);
-              
-              // Continue polling - stitching should start automatically
-              return;
-            }
-            
-            clearInterval(pollInterval);
-            setIsPolling(false);
-            
-            // ALWAYS set waiting state and video URL immediately
-            // segmentsCompleted is the number of segments that have completed
-            // Segment indices are 0-indexed: 0, 1, 2, etc.
-            // If segmentsCompleted = 1, that means segment 0 is done, next is segment 1
-            // So nextSegmentIndex = segmentsCompleted (which is correct)
-            const nextSegmentIndex = data.segmentsCompleted || 0;
-            console.log('Setting next segment index to:', nextSegmentIndex, '(segmentsCompleted:', data.segmentsCompleted, ', totalSegments:', data.totalSegments, ')');
-            setWaitingForNextSegment(true);
-            setCurrentSegmentIndex(nextSegmentIndex);
-            setProgress(80);
-            // Display: "Segment X completed" where X is the 1-indexed number (segmentsCompleted)
-            // But we're asking for the NEXT segment, which is segmentsCompleted + 1 in 1-indexed terms
-            setGenerationStatus(`Segment ${data.segmentsCompleted || 0} of ${data.totalSegments || 1} completed. Please provide prompt for segment ${(data.segmentsCompleted || 0) + 1}.`);
-            
-            // Set video URL immediately so video shows
-            if (data.videoUrl) {
-              console.log('Setting completed segment video URL:', data.videoUrl);
-              setCompletedSegmentVideoUrl(data.videoUrl);
-            }
-            
-            // If we already have a last frame URL, use it
-            if (data.lastFrameUrl) {
-              console.log('Using existing last frame URL:', data.lastFrameUrl);
-              setLastFrameUrl(data.lastFrameUrl);
-              toast.success(`Segment ${data.segmentsCompleted || 0} completed! Please provide the prompt for the next scene.`, { duration: 10000 });
-            } else if (data.videoUrl) {
-              // Only extract frame if not all segments are completed (we need it for the next segment)
-              // If all segments are done, we don't need to extract frame - stitching will happen
-              if (data.segmentsCompleted < data.totalSegments) {
-                // Try to extract frame, but don't block UI
-                console.log('Attempting to extract frame from:', data.videoUrl);
-                const lastCompletedSegmentIndex = Math.max(0, (data.segmentsCompleted || 1) - 1);
-                
-                // Extract frame in background (non-blocking)
-                extractLastFrameFromVideo(data.videoUrl, data.generationId, lastCompletedSegmentIndex)
-                  .then((frameUrl) => {
-                    console.log('Frame extraction successful:', frameUrl);
-                    setLastFrameUrl(frameUrl);
-                    toast.success('Last frame extracted!', { duration: 5000 });
-                  })
-                  .catch((error) => {
-                    console.error('Frame extraction failed:', error);
-                    console.error('Error details:', error.message);
-                    // Don't show error toast - video is already showing, user can proceed
-                  });
-                
-                toast.success(`Segment ${data.segmentsCompleted || 0} completed! Please provide the prompt for the next scene.`, { duration: 10000 });
-              } else {
-                // All segments done, no need to extract frame
-                console.log('All segments completed, skipping frame extraction');
-              }
-            } else {
-              toast.warning('Segment completed but video URL not available yet.');
-            }
-            
-            return;
-          } else if (data.isStitching) {
-            setIsStitching(true);
-            setProgress(90);
-            setGenerationStatus('Stitching segments together...');
-          } else if (data.segmentsCompleted < data.totalSegments) {
-            const segmentProgressPercent = ((data.segmentsCompleted || 0) / (data.totalSegments || 1)) * 80;
-            setProgress(10 + segmentProgressPercent);
-            setGenerationStatus(`Segment ${data.segmentsCompleted + 1}/${data.totalSegments} in progress...`);
-          }
-        }
+        // Single segment flow only
 
         if (data.status === 'completed') {
           clearInterval(pollInterval);
@@ -475,8 +169,7 @@ const Generate = () => {
             });
             toast.success(data.isMultiSegment ? 'Multi-segment video generated successfully!' : 'Video with audio generated successfully!');
           }
-          setSegmentProgress(null);
-          setIsStitching(false);
+          
         } else if (data.status === 'failed') {
           clearInterval(pollInterval);
           setIsPolling(false);
@@ -496,10 +189,7 @@ const Generate = () => {
           
           // Reset retry count for next attempt
           setRetryCount(0);
-          setSegmentProgress(null);
-          setIsStitching(false);
         } else if (data.status === 'stitching') {
-          setIsStitching(true);
           setProgress(90);
           setGenerationStatus('Stitching segments together...');
         } else if (data.status === 'processing' && !data.isMultiSegment) {
@@ -565,7 +255,7 @@ const Generate = () => {
           imageUrl,
           prompt: prompt.trim(),
           duration: duration,
-          segmentType: segmentType
+          segmentType: duration
         }
       });
 
@@ -584,14 +274,7 @@ const Generate = () => {
       // Store generation ID and start polling
       const genId = data.generationId;
       setGenerationId(genId);
-      if (data.isMultiSegment) {
-        setParentGenerationId(genId);
-        // For multi-segment, poll using parent generation ID
-        startPolling(genId);
-      } else {
-        // For single segment, poll using generation ID
-        startPolling(genId);
-      }
+      startPolling(genId);
       toast.info('Video generation started! We\'ll notify you when it\'s ready.');
       
     } catch (error: any) {
@@ -602,88 +285,7 @@ const Generate = () => {
     }
   };
 
-  const continueNextSegment = async () => {
-    if (!nextSegmentPrompt.trim()) {
-      toast.error('Please enter a prompt for the next scene');
-      return;
-    }
-
-    if (!lastFrameUrl || !parentGenerationId) {
-      toast.error('Missing information to continue segment generation');
-      return;
-    }
-
-    // Validate that we're not trying to generate beyond the total segments
-    if (segmentProgress && currentSegmentIndex >= segmentProgress.total) {
-      toast.error('All segments have been generated. Stitching should start automatically.');
-      return;
-    }
-
-    setIsGenerating(true);
-    setProgress(85);
-    setGenerationStatus(`Generating segment ${currentSegmentIndex + 1}...`);
-
-    try {
-      // Use direct fetch instead of supabase.functions.invoke to avoid routing issues
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Authentication required');
-      }
-
-      console.log('Continuing segment generation:', {
-        parentGenerationId,
-        segmentIndex: currentSegmentIndex,
-        prompt: nextSegmentPrompt.trim(),
-        hasLastFrameUrl: !!lastFrameUrl
-      });
-
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/continue-segment-generation`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': SUPABASE_PUBLISHABLE_KEY
-        },
-        body: JSON.stringify({
-          parentGenerationId: parentGenerationId,
-          segmentIndex: currentSegmentIndex,
-          prompt: nextSegmentPrompt.trim(),
-          lastFrameUrl: lastFrameUrl
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}: ${response.statusText}` }));
-        console.error('Continue segment generation error:', errorData);
-        const errorMessage = errorData.details || errorData.error || errorData.segmentError || `HTTP ${response.status}: ${response.statusText}`;
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
-
-      if (!data || !data.success) {
-        throw new Error(data?.error || data?.details || 'Failed to continue segment generation');
-      }
-
-      // Clear waiting state and resume polling
-      setWaitingForNextSegment(false);
-      setNextSegmentPrompt("");
-      setLastFrameUrl(null);
-      setCompletedSegmentVideoUrl(null);
-      setIsPolling(true);
-      
-      // Resume polling with parent generation ID
-      startPolling(parentGenerationId);
-      
-      toast.success(`Segment ${currentSegmentIndex + 1} generation started!`);
-      
-    } catch (error: any) {
-      console.error('Error continuing segment generation:', error);
-      toast.error(error.message || 'Failed to continue segment generation');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+  
 
   const downloadVideo = async () => {
     if (!generatedVideo) return;
@@ -902,51 +504,22 @@ const Generate = () => {
                         Video Duration
                       </label>
                       
-                      {/* Segment Type Toggle */}
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant={segmentType === 6 ? "default" : "outline"}
-                          onClick={() => handleSegmentTypeChange(6)}
-                          className="flex-1"
-                          size="sm"
-                        >
-                          6s Segments
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={segmentType === 10 ? "default" : "outline"}
-                          onClick={() => handleSegmentTypeChange(10)}
-                          className="flex-1"
-                          size="sm"
-                        >
-                          10s Segments
-                        </Button>
+                      <div className="grid grid-cols-3 gap-2">
+                        {allowedDurations.map((d) => (
+                          <Button
+                            key={d}
+                            type="button"
+                            variant={duration === d ? "default" : "outline"}
+                            onClick={() => setDuration(d)}
+                            size="sm"
+                          >
+                            {d}s
+                          </Button>
+                        ))}
                       </div>
-                      
-                      <div className="space-y-2">
-                        <input
-                          type="range"
-                          min={segmentType}
-                          max="240"
-                          step={segmentType}
-                          value={duration}
-                          onChange={(e) => setDuration(parseInt(e.target.value))}
-                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>{segmentType}s</span>
-                          <span className="font-semibold">{duration}s</span>
-                          <span>240s (4min)</span>
-                        </div>
-                        <div className="p-3 bg-muted rounded-lg">
-                          <div className="text-sm font-medium mb-1">
-                            {segments.length} segment{segments.length > 1 ? 's' : ''} ({segments.map(s => `${s}s`).join(' + ')})
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Total cost: {creditCost} credit{creditCost > 1 ? 's' : ''} ({segments.map((seg) => `${seg === 6 ? '1' : '2'} credit${seg === 10 ? 's' : ''}`).join(' + ')})
-                          </div>
-                        </div>
+                      <div className="p-3 bg-muted rounded-lg">
+                        <div className="text-sm font-medium mb-1">Selected: {duration}s</div>
+                        <div className="text-xs text-muted-foreground">Cost: {creditCost} credit{creditCost > 1 ? 's' : ''} (6s=1, 10s=2, 20s=3)</div>
                       </div>
                     </div>
 
@@ -987,29 +560,13 @@ const Generate = () => {
                                 ? "Step 2: Adding audio..." 
                                 : "Finalizing your video...")}
                         </p>
-                        {segmentProgress && (
-                          <div className="p-2 bg-muted rounded-lg">
-                            <div className="text-xs text-center font-medium mb-1">
-                              Segment Progress: {segmentProgress.completed}/{segmentProgress.total} completed
-                            </div>
-                            {segmentProgress.current && !isStitching && (
-                              <div className="text-xs text-center text-muted-foreground">
-                                Currently generating segment {segmentProgress.current}...
-                              </div>
-                            )}
-                            {isStitching && (
-                              <div className="text-xs text-center text-muted-foreground">
-                                Stitching all segments together...
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        
                         {generationId && (
                           <p className="text-xs text-center text-muted-foreground">
                             Generation ID: {generationId.substring(0, 8)}...
                           </p>
                         )}
-                        {!segmentProgress && (
+                        {
                           <div className="flex justify-center space-x-2 text-xs text-muted-foreground">
                             <span className={progress >= 20 ? "text-accent" : ""}>1. Video</span>
                             <span>→</span>
@@ -1017,7 +574,7 @@ const Generate = () => {
                             <span>→</span>
                             <span className={progress >= 100 ? "text-accent" : ""}>3. Complete</span>
                           </div>
-                        )}
+                        }
                         {isPolling && generationId && (
                           <Button
                             onClick={async () => {
@@ -1060,207 +617,48 @@ const Generate = () => {
 
               {/* Output Section */}
               <div>
-                {waitingForNextSegment && segmentProgress && currentSegmentIndex < segmentProgress.total && (
-                  <div className="mb-4 p-4 bg-gradient-to-r from-primary/20 to-secondary/20 border-2 border-primary/50 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Zap className="w-5 h-5 text-primary" />
-                      <h3 className="text-lg font-bold">Segment {segmentProgress?.completed || 0} of {segmentProgress?.total || 0} Completed!</h3>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Provide the prompt for <strong>Segment {segmentProgress?.completed ? segmentProgress.completed + 1 : currentSegmentIndex + 1}</strong> of {segmentProgress?.total || 0} below.
-                    </p>
-                  </div>
-                )}
-                {waitingForNextSegment && segmentProgress && currentSegmentIndex >= segmentProgress.total && (
-                  <div className="mb-4 p-4 bg-gradient-to-r from-green-500/20 to-blue-500/20 border-2 border-green-500/50 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <CheckCircle className="w-5 h-5 text-green-500" />
-                      <h3 className="text-lg font-bold text-green-700 dark:text-green-400">All Segments Completed!</h3>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      All {segmentProgress.total} segments have been generated. The video is being stitched together automatically...
-                    </p>
-                  </div>
-                )}
+                
                 
                 <Card className="glass-card">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <VideoIcon className="w-5 h-5" />
-                      {isStitching ? 'Stitching Segments...' : waitingForNextSegment ? `Segment ${segmentProgress?.completed ? segmentProgress.completed + 1 : currentSegmentIndex + 1} of ${segmentProgress?.total || 0}` : 'Generated Video'}
+                      Generated Video
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {(waitingForNextSegment || (isStitching && completedSegmentVideoUrl)) ? (
-                      <div className="space-y-6">
-                        {/* Show completed segment video if available */}
-                        {completedSegmentVideoUrl && (
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold text-primary">
-                              {isStitching 
-                                ? `Last Completed Segment (${segmentProgress?.completed || segmentProgress?.total || 0} of ${segmentProgress?.total || 0})`
-                                : `Completed Segment ${segmentProgress?.completed || 1} (of ${segmentProgress?.total || 0}):`
-                              }
-                            </label>
-                            <video
-                              src={completedSegmentVideoUrl}
-                              controls
-                              className="w-full rounded-lg border-2 border-primary/30"
-                              autoPlay
-                              muted
-                            >
-                              Your browser does not support the video tag.
-                            </video>
-                          </div>
-                        )}
-                        
-                        {/* Last Frame Section - Only show if not stitching and not all segments completed */}
-                        {!isStitching && segmentProgress && segmentProgress.completed < segmentProgress.total && lastFrameUrl ? (
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold flex items-center gap-2">
-                              <ImageIcon className="w-4 h-4" />
-                              Last Frame from Segment {segmentProgress?.completed || 0}:
-                            </label>
-                            <div className="relative">
-                              <img 
-                                src={lastFrameUrl} 
-                                alt="Last frame from previous segment" 
-                                className="w-full rounded-lg border-4 border-primary/50 shadow-lg"
-                              />
-                              <div className="absolute top-2 right-2 bg-primary/90 text-white text-xs px-2 py-1 rounded">
-                                Last Frame
-                              </div>
-                            </div>
-                            <p className="text-xs text-muted-foreground text-center">
-                              This is where Segment {segmentProgress?.completed || 1} ended. Describe what should happen next.
-                            </p>
-                          </div>
-                        ) : !isStitching && segmentProgress && segmentProgress.completed < segmentProgress.total && completedSegmentVideoUrl ? (
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold flex items-center gap-2">
-                              <VideoIcon className="w-4 h-4" />
-                              Watch Segment {segmentProgress?.completed || 1} to see where it ended:
-                            </label>
-                            <video
-                              key={completedSegmentVideoUrl} // Force re-render when URL changes
-                              src={completedSegmentVideoUrl}
-                              controls
-                              className="w-full rounded-lg border-4 border-primary/50 shadow-lg"
-                              onLoadedMetadata={(e) => {
-                                console.log('Video metadata loaded in UI, duration:', e.currentTarget.duration);
-                                // Try to seek to end when video loads
-                                const video = e.currentTarget;
-                                if (video.duration) {
-                                  video.currentTime = video.duration - 0.1;
-                                }
-                              }}
-                              onEnded={(e) => {
-                                // When video ends, try to extract frame only if more segments remain
-                                const video = e.currentTarget;
-                                if (!lastFrameUrl && completedSegmentVideoUrl && parentGenerationId && segmentProgress && segmentProgress.completed < segmentProgress.total) {
-                                  console.log('Video ended, attempting frame extraction');
-                                  const lastCompletedSegmentIndex = Math.max(0, (segmentProgress?.completed || 1) - 1);
-                                  extractLastFrameFromVideo(completedSegmentVideoUrl, parentGenerationId, lastCompletedSegmentIndex)
-                                    .then((frameUrl) => {
-                                      console.log('Frame extracted from video end event:', frameUrl);
-                                      setLastFrameUrl(frameUrl);
-                                      toast.success('Last frame extracted!');
-                                    })
-                                    .catch((error) => {
-                                      console.error('Frame extraction failed:', error);
-                                    });
-                                }
-                              }}
-                              onError={(e) => {
-                                console.error('Video load error in UI:', e);
-                                toast.error('Failed to load video. Please check the URL.');
-                              }}
-                            >
-                              Your browser does not support the video tag.
-                            </video>
-                            <p className="text-xs text-muted-foreground text-center">
-                              <strong>Tip:</strong> Drag the video to the end to see the last frame, then describe what should happen next.
-                            </p>
-                            {!lastFrameUrl && segmentProgress && segmentProgress.completed < segmentProgress.total && (
-                              <Button
-                                onClick={() => {
-                                  if (completedSegmentVideoUrl && parentGenerationId && segmentProgress && segmentProgress.completed < segmentProgress.total) {
-                                    const lastCompletedSegmentIndex = Math.max(0, (segmentProgress?.completed || 1) - 1);
-                                    toast.info('Extracting last frame...');
-                                    console.log('Manual frame extraction triggered');
-                                    extractLastFrameFromVideo(completedSegmentVideoUrl, parentGenerationId, lastCompletedSegmentIndex)
-                                      .then((frameUrl) => {
-                                        console.log('Manual frame extraction successful:', frameUrl);
-                                        setLastFrameUrl(frameUrl);
-                                        toast.success('Last frame extracted!');
-                                      })
-                                      .catch((error) => {
-                                        console.error('Manual frame extraction failed:', error);
-                                        toast.error(`Frame extraction failed: ${error.message}`);
-                                      });
-                                  }
-                                }}
-                                variant="outline"
-                                size="sm"
-                                className="w-full"
-                              >
-                                <ImageIcon className="w-4 h-4 mr-2" />
-                                Extract Last Frame
-                              </Button>
-                            )}
-                          </div>
-                        ) : isStitching ? (
-                          <div className="p-8 border-2 border-dashed border-primary/50 rounded-lg text-center">
-                            <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin text-primary" />
-                            <p className="text-sm text-muted-foreground mb-2">Stitching all segments together...</p>
-                            <p className="text-xs text-muted-foreground">This may take a few moments. The final video will appear here when ready.</p>
-                          </div>
-                        ) : (
-                          <div className="p-8 border-2 border-dashed border-muted rounded-lg text-center">
-                            <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin text-primary" />
-                            <p className="text-sm text-muted-foreground mb-2">Waiting for video URL...</p>
-                            <p className="text-xs text-muted-foreground">The completed segment video is being processed.</p>
-                          </div>
-                        )}
+                    {generatedVideo ? (
+                      <div className="space-y-4">
+                        <video
+                          src={generatedVideo.url}
+                          controls
+                          className="w-full rounded-lg"
+                          poster={imagePreview}
+                        >
+                          Your browser does not support the video tag.
+                        </video>
+                        <div className="space-y-2">
+                          <p className="text-sm text-muted-foreground">
+                            <strong>Prompt:</strong> {generatedVideo.prompt}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            <strong>Duration:</strong> {generatedVideo.duration} seconds
+                          </p>
+                        </div>
+                        <Button onClick={downloadVideo} variant="outline" className="w-full">
+                          <Download className="w-4 h-4 mr-2" />
+                          Download Video
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="p-8 border-2 border-dashed border-muted rounded-lg text-center">
+                        <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin text-primary" />
+                        <p className="text-sm text-muted-foreground mb-2">Waiting for video URL...</p>
+                        <p className="text-xs text-muted-foreground">Your video will appear here once ready.</p>
+                      </div>
+                    )}
 
-                        {/* Next Scene Prompt Section - Only show if not all segments completed and not stitching */}
-                        {!isStitching && segmentProgress && currentSegmentIndex < segmentProgress.total && (
-                          <div className="space-y-3 p-4 bg-muted/50 rounded-lg border-2 border-primary/30">
-                            <label className="text-base font-bold flex items-center gap-2">
-                              <Sparkles className="w-5 h-5 text-primary" />
-                              Next Scene Prompt for Segment {segmentProgress?.completed ? segmentProgress.completed + 1 : currentSegmentIndex + 1}
-                            </label>
-                            <p className="text-xs text-muted-foreground">
-                              Describe what should happen in the next {segmentType}-second segment. Be specific about movement, atmosphere, and visual elements.
-                            </p>
-                            <Textarea
-                              value={nextSegmentPrompt}
-                              onChange={(e) => setNextSegmentPrompt(e.target.value)}
-                              placeholder="Example: 'The character walks forward, camera follows as they approach a glowing portal. Dramatic lighting and atmospheric effects.'"
-                              className="resize-none text-base"
-                            rows={5}
-                          />
-                            <Button
-                              onClick={continueNextSegment}
-                              disabled={!nextSegmentPrompt.trim() || isGenerating}
-                              className="w-full h-12 text-lg font-bold"
-                              variant="glass-primary"
-                              size="lg"
-                            >
-                              {isGenerating ? (
-                                <>
-                                  <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-                                  Generating Segment {currentSegmentIndex + 1}...
-                                </>
-                              ) : (
-                                <>
-                                  <Play className="w-5 h-5 mr-2" />
-                                  Generate Segment {currentSegmentIndex + 1} ({segmentType}s)
-                                </>
-                              )}
-                            </Button>
-                          </div>
-                        )}
+                        
                       </div>
                     ) : generatedVideo ? (
                       <div className="space-y-4">
