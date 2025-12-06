@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { 
   Upload, 
@@ -158,7 +159,7 @@ const Generate = () => {
           clearInterval(pollInterval);
           setIsPolling(false);
           setProgress(100);
-          setGenerationStatus(data.isMultiSegment ? 'Video stitched and ready!' : 'Video with audio ready!');
+          setGenerationStatus('Video with audio ready!');
           
           // Use the videoUrl from the response
           if (data.videoUrl) {
@@ -167,7 +168,7 @@ const Generate = () => {
               prompt: prompt,
               duration: duration
             });
-            toast.success(data.isMultiSegment ? 'Multi-segment video generated successfully!' : 'Video with audio generated successfully!');
+            toast.success('Video with audio generated successfully!');
           }
           
         } else if (data.status === 'failed') {
@@ -189,10 +190,7 @@ const Generate = () => {
           
           // Reset retry count for next attempt
           setRetryCount(0);
-        } else if (data.status === 'stitching') {
-          setProgress(90);
-          setGenerationStatus('Stitching segments together...');
-        } else if (data.status === 'processing' && !data.isMultiSegment) {
+        } else if (data.status === 'processing') {
           setProgress(50);
           setGenerationStatus('Generating video...');
         }
@@ -503,20 +501,16 @@ const Generate = () => {
                       <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                         Video Duration
                       </label>
-                      
-                      <div className="grid grid-cols-3 gap-2">
-                        {allowedDurations.map((d) => (
-                          <Button
-                            key={d}
-                            type="button"
-                            variant={duration === d ? "default" : "outline"}
-                            onClick={() => setDuration(d)}
-                            size="sm"
-                          >
-                            {d}s
-                          </Button>
-                        ))}
-                      </div>
+                      <Select value={String(duration)} onValueChange={(v) => setDuration(parseInt(v))}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select duration" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="6">6 seconds</SelectItem>
+                          <SelectItem value="10">10 seconds</SelectItem>
+                          <SelectItem value="20">20 seconds</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <div className="p-3 bg-muted rounded-lg">
                         <div className="text-sm font-medium mb-1">Selected: {duration}s</div>
                         <div className="text-xs text-muted-foreground">Cost: {creditCost} credit{creditCost > 1 ? 's' : ''} (6s=1, 10s=2, 20s=3)</div>
