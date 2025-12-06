@@ -651,47 +651,6 @@ const Generate = () => {
                         <p className="text-xs text-muted-foreground">Your video will appear here once ready.</p>
                       </div>
                     )}
-
-                        
-                      </div>
-                    ) : generatedVideo ? (
-                      <div className="space-y-4">
-                        <video
-                          src={generatedVideo.url}
-                          controls
-                          className="w-full rounded-lg"
-                          poster={imagePreview}
-                        >
-                          Your browser does not support the video tag.
-                        </video>
-                        
-                        <div className="space-y-2">
-                          <p className="text-sm text-muted-foreground">
-                            <strong>Prompt:</strong> {generatedVideo.prompt}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            <strong>Duration:</strong> {generatedVideo.duration} seconds
-                          </p>
-                        </div>
-
-                        <Button
-                          onClick={downloadVideo}
-                          variant="outline"
-                          className="w-full"
-                        >
-                          <Download className="w-4 h-4 mr-2" />
-                          Download Video
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="text-center py-12">
-                        <VideoIcon className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-                        <p className="text-lg font-medium mb-2">No video generated yet</p>
-                        <p className="text-muted-foreground">
-                          Upload an image and click generate to create your video
-                        </p>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               </div>
